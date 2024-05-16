@@ -5,6 +5,24 @@ max_length=4096
 use_fast_tokenizer=True
 
 folder_name_list=(
+  "results_prune/DeepSeek-expert_drop-global_pruning-r0"
+  "results_prune/DeepSeek-expert_drop-global_pruning-r8"
+  #"results_prune/DeepSeek-expert_drop-global_pruning-r16"
+  #"results_prune/DeepSeek-expert_drop-global_pruning-r24"
+  #"results_prune/DeepSeek-expert_drop-global_pruning-r32"
+  #"results_prune/DeepSeek-expert_drop-global_pruning-r40"
+  #"results_prune/DeepSeek-expert_drop-global_pruning-r48"
+  #"results_prune/DeepSeek-expert_drop-global_pruning-r56"
+
+  "results_prune/DeepSeek-expert_drop-global_pruning-r0-DyGate"
+  "results_prune/DeepSeek-expert_drop-global_pruning-r8-DyGate"
+  "results_prune/DeepSeek-expert_drop-global_pruning-r16-DyGate"
+  "results_prune/DeepSeek-expert_drop-global_pruning-r24-DyGate"
+  "results_prune/DeepSeek-expert_drop-global_pruning-r32-DyGate"
+  "results_prune/DeepSeek-expert_drop-global_pruning-r40-DyGate"
+  "results_prune/DeepSeek-expert_drop-global_pruning-r48-DyGate"
+  "results_prune/DeepSeek-expert_drop-global_pruning-r56-DyGate"
+
   #  "results_prune/DeepSeek-layer_drop-discrete-drop14"
   #  "results_prune/DeepSeek-layer_drop-discrete-drop16"
   #  "results_prune/DeepSeek-layer_drop-discrete-drop18"
@@ -23,35 +41,35 @@ folder_name_list=(
   #  "results_prune/DeepSeek-block_drop-discrete-drop24"
   #  "results_prune/DeepSeek-block_drop-discrete-drop26"
 
-  "results_prune/DeepSeek-layer_drop-discrete-drop1"
-  "results_prune/DeepSeek-layer_drop-discrete-drop3"
-  "results_prune/DeepSeek-layer_drop-discrete-drop5"
-  "results_prune/DeepSeek-layer_drop-discrete-drop7"
-  "results_prune/DeepSeek-layer_drop-discrete-drop9"
-  "results_prune/DeepSeek-layer_drop-discrete-drop11"
-  "results_prune/DeepSeek-layer_drop-discrete-drop13"
-  "results_prune/DeepSeek-layer_drop-discrete-drop15"
-  "results_prune/DeepSeek-layer_drop-discrete-drop17"
-  "results_prune/DeepSeek-layer_drop-discrete-drop19"
-  "results_prune/DeepSeek-layer_drop-discrete-drop21"
-  "results_prune/DeepSeek-layer_drop-discrete-drop23"
-  "results_prune/DeepSeek-layer_drop-discrete-drop25"
-  "results_prune/DeepSeek-layer_drop-discrete-drop27"
+  #  "results_prune/DeepSeek-layer_drop-discrete-drop1"
+  #  "results_prune/DeepSeek-layer_drop-discrete-drop3"
+  #  "results_prune/DeepSeek-layer_drop-discrete-drop5"
+  #  "results_prune/DeepSeek-layer_drop-discrete-drop7"
+  #  "results_prune/DeepSeek-layer_drop-discrete-drop9"
+  #  "results_prune/DeepSeek-layer_drop-discrete-drop11"
+  #  "results_prune/DeepSeek-layer_drop-discrete-drop13"
+  #  "results_prune/DeepSeek-layer_drop-discrete-drop15"
+  #  "results_prune/DeepSeek-layer_drop-discrete-drop17"
+  #  "results_prune/DeepSeek-layer_drop-discrete-drop19"
+  #  "results_prune/DeepSeek-layer_drop-discrete-drop21"
+  #  "results_prune/DeepSeek-layer_drop-discrete-drop23"
+  #  "results_prune/DeepSeek-layer_drop-discrete-drop25"
+  #  "results_prune/DeepSeek-layer_drop-discrete-drop27"
 
-  "results_prune/DeepSeek-block_drop-discrete-drop1"
-  "results_prune/DeepSeek-block_drop-discrete-drop3"
-  "results_prune/DeepSeek-block_drop-discrete-drop5"
-  "results_prune/DeepSeek-block_drop-discrete-drop7"
-  "results_prune/DeepSeek-block_drop-discrete-drop9"
-  "results_prune/DeepSeek-block_drop-discrete-drop11"
-  "results_prune/DeepSeek-block_drop-discrete-drop13"
-  "results_prune/DeepSeek-block_drop-discrete-drop15"
-  "results_prune/DeepSeek-block_drop-discrete-drop17"
-  "results_prune/DeepSeek-block_drop-discrete-drop19"
-  "results_prune/DeepSeek-block_drop-discrete-drop21"
-  "results_prune/DeepSeek-block_drop-discrete-drop23"
-  "results_prune/DeepSeek-block_drop-discrete-drop25"
-  "results_prune/DeepSeek-block_drop-discrete-drop27"
+  #  "results_prune/DeepSeek-block_drop-discrete-drop1"
+  #  "results_prune/DeepSeek-block_drop-discrete-drop3"
+  #  "results_prune/DeepSeek-block_drop-discrete-drop5"
+  #  "results_prune/DeepSeek-block_drop-discrete-drop7"
+  #  "results_prune/DeepSeek-block_drop-discrete-drop9"
+  #  "results_prune/DeepSeek-block_drop-discrete-drop11"
+  #  "results_prune/DeepSeek-block_drop-discrete-drop13"
+  #  "results_prune/DeepSeek-block_drop-discrete-drop15"
+  #  "results_prune/DeepSeek-block_drop-discrete-drop17"
+  #  "results_prune/DeepSeek-block_drop-discrete-drop19"
+  #  "results_prune/DeepSeek-block_drop-discrete-drop21"
+  #  "results_prune/DeepSeek-block_drop-discrete-drop23"
+  #  "results_prune/DeepSeek-block_drop-discrete-drop25"
+  #  "results_prune/DeepSeek-block_drop-discrete-drop27"
 )
 
 sparse_type="none"
@@ -66,14 +84,11 @@ autoawq=False
 #num_fewshot_list=(5 0 0 0 0 0 0 0 0)
 #task_name_list=("gsm8k" "arc_challenge" "arc_easy" "boolq" "hellaswag" "mmlu" "openbookqa" "rte" "winogrande")
 
-num_fewshot_list=(0 0 0 0 0 0)
-task_name_list=("boolq" "hellaswag" "mmlu" "openbookqa" "rte" "winogrande")
+#num_fewshot_list=(0 0 0 0 0 0)
+#task_name_list=("boolq" "hellaswag" "mmlu" "openbookqa" "rte" "winogrande")
 
-#num_fewshot_list=(5)
-#task_name_list=("gsm8k")
-
-#num_fewshot_list=(0)
-#task_name_list=("openbookqa")
+num_fewshot_list=(0 0 0 0)
+task_name_list=("hellaswag" "mmlu" "openbookqa" "winogrande")
 
 #num_fewshot_list=(0)
 #task_name_list=("winogrande")
@@ -92,11 +107,10 @@ for folder_name in "${folder_name_list[@]}"; do
     ############## FOR COMPRESSED MODEL ##############
     model_path="/mnt/petrelfs/dongdaize.d/workspace/compression/${folder_name}/checkpoint"
     save_path="${root_dir}/results_prune/${task_name}/${num_fewshot}shot-${folder_name}"
-    rm ${save_path}/results.json
 
+    rm ${save_path}/results*.json
     sbatch ${root_dir}/runs_prune/sub_tasks_deepseek/${task_name}.sh ${model_path} ${save_path} ${max_length} ${num_fewshot} $autogptq $autoawq $use_fast_tokenizer $sparse_type &
     sleep 1
   done
-  sleep 60
 done
 wait

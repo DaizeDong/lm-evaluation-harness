@@ -25,13 +25,15 @@ use_fast_tokenizer=True
 #folder_name="results_prune/DeepSeek-sparsegpt-c4_train-4:8-0.5-128-NoAttn"
 #folder_name="results_prune/DeepSeek-sparsegpt-c4_train-2:4-0.5-128-NoAttn"
 
-# folder_name="results_prune/DeepSeek-wanda-c4_train-unstructured-0.5-128-NoAttn-NoShared"
-# folder_name="results_prune/DeepSeek-wanda-c4_train-4:8-0.5-128-NoAttn-NoShared"
-# folder_name="results_prune/DeepSeek-wanda-c4_train-2:4-0.5-128-NoAttn-NoShared"
-# folder_name="results_prune/DeepSeek-sparsegpt-c4_train-unstructured-0.5-128-NoAttn-NoShared"
-# folder_name="results_prune/DeepSeek-sparsegpt-c4_train-4:8-0.5-128-NoAttn-NoShared"
-# folder_name="results_prune/DeepSeek-sparsegpt-c4_train-2:4-0.5-128-NoAttn-NoShared"
+#folder_name="results_prune/DeepSeek-wanda-c4_train-unstructured-0.5-128-NoAttn-NoShared"
+#folder_name="results_prune/DeepSeek-wanda-c4_train-4:8-0.5-128-NoAttn-NoShared"
+#folder_name="results_prune/DeepSeek-wanda-c4_train-2:4-0.5-128-NoAttn-NoShared"
+#folder_name="results_prune/DeepSeek-sparsegpt-c4_train-unstructured-0.5-128-NoAttn-NoShared"
+#folder_name="results_prune/DeepSeek-sparsegpt-c4_train-4:8-0.5-128-NoAttn-NoShared"
+#folder_name="results_prune/DeepSeek-sparsegpt-c4_train-2:4-0.5-128-NoAttn-NoShared"
 
+#folder_name="results_prune/DeepSeek-expert_drop-layerwise_pruning-r0"
+#folder_name="results_prune/DeepSeek-expert_drop-layerwise_pruning-r8"
 #folder_name="results_prune/DeepSeek-expert_drop-layerwise_pruning-r16"
 #folder_name="results_prune/DeepSeek-expert_drop-layerwise_pruning-r24"
 #folder_name="results_prune/DeepSeek-expert_drop-layerwise_pruning-r32"
@@ -39,12 +41,22 @@ use_fast_tokenizer=True
 #folder_name="results_prune/DeepSeek-expert_drop-layerwise_pruning-r48"
 #folder_name="results_prune/DeepSeek-expert_drop-layerwise_pruning-r56"
 
+#folder_name="results_prune/DeepSeek-expert_drop-global_pruning-r0"
+#folder_name="results_prune/DeepSeek-expert_drop-global_pruning-r8"
 #folder_name="results_prune/DeepSeek-expert_drop-global_pruning-r16"
 #folder_name="results_prune/DeepSeek-expert_drop-global_pruning-r24"
 #folder_name="results_prune/DeepSeek-expert_drop-global_pruning-r32"
 #folder_name="results_prune/DeepSeek-expert_drop-global_pruning-r40"
 #folder_name="results_prune/DeepSeek-expert_drop-global_pruning-r48"
 #folder_name="results_prune/DeepSeek-expert_drop-global_pruning-r56"
+#folder_name="results_prune/DeepSeek-expert_drop-global_pruning-r0-DyGate"
+folder_name="results_prune/DeepSeek-expert_drop-global_pruning-r8-DyGate"
+#folder_name="results_prune/DeepSeek-expert_drop-global_pruning-r16-DyGate"
+#folder_name="results_prune/DeepSeek-expert_drop-global_pruning-r24-DyGate"
+#folder_name="results_prune/DeepSeek-expert_drop-global_pruning-r32-DyGate"
+#folder_name="results_prune/DeepSeek-expert_drop-global_pruning-r40-DyGate"
+#folder_name="results_prune/DeepSeek-expert_drop-global_pruning-r48-DyGate"
+#folder_name="results_prune/DeepSeek-expert_drop-global_pruning-r56-DyGate"
 
 #folder_name="results_prune/DeepSeek-layer_drop-consecutive-drop2"
 #folder_name="results_prune/DeepSeek-layer_drop-consecutive-drop4"
@@ -107,8 +119,8 @@ autoawq=False
 #autogptq=True
 
 # AWQ
-folder_name="results_quantization/deepseek-AWQ-4bits"
-autoawq=True
+#folder_name="results_quantization/deepseek-AWQ-4bits"
+#autoawq=True
 
 ####################################################################
 #num_fewshot_list=(5 0 0 0 0 0 0 0)
@@ -117,11 +129,17 @@ autoawq=True
 #num_fewshot_list=(0 0 0 0 0 0)
 #task_name_list=("boolq" "hellaswag" "mmlu" "openbookqa" "rte" "winogrande")
 
+#num_fewshot_list=(0 0 0 0)
+#task_name_list=("hellaswag" "mmlu" "openbookqa" "winogrande")
+
 #num_fewshot_list=(5)
 #task_name_list=("agieval_aqua_rat")
 
-num_fewshot_list=(5)
-task_name_list=("gsm8k")
+num_fewshot_list=(0 5 10 0 5 10)
+task_name_list=("truthfulqa" "truthfulqa" "truthfulqa" "triviaqa" "triviaqa" "triviaqa")
+
+#num_fewshot_list=(5)
+#task_name_list=("gsm8k")
 
 #num_fewshot_list=(0)
 #task_name_list=("winogrande")
@@ -133,14 +151,14 @@ for ((i = 0; i < ${#num_fewshot_list[@]}; i++)); do
   echo "sparse_type: ${sparse_type}"
 
   ############## FOR ORIGINAL MODEL ##############
-  #  model_path=/mnt/petrelfs/dongdaize.d/workspace/compression/models/deepseek
-  #  save_path="${root_dir}/results_prune/${task_name}/${num_fewshot}shot-DeepSeek"
+  model_path=/mnt/petrelfs/dongdaize.d/workspace/compression/models/deepseek
+  save_path="${root_dir}/results_prune/${task_name}/${num_fewshot}shot-DeepSeek"
 
   ############## FOR COMPRESSED MODEL ##############
-  model_path="/mnt/petrelfs/dongdaize.d/workspace/compression/${folder_name}/checkpoint"
-  save_path="${root_dir}/results_prune/${task_name}/${num_fewshot}shot-${folder_name}"
+  #  model_path="/mnt/petrelfs/dongdaize.d/workspace/compression/${folder_name}/checkpoint"
+  #  save_path="${root_dir}/results_prune/${task_name}/${num_fewshot}shot-${folder_name}"
 
-  rm ${save_path}/results.json
+  rm ${save_path}/results*.json
   sbatch ${root_dir}/runs_prune/sub_tasks_deepseek/${task_name}.sh ${model_path} ${save_path} ${max_length} ${num_fewshot} $autogptq $autoawq $use_fast_tokenizer $sparse_type &
   sleep 1
 done

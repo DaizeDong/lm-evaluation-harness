@@ -20,32 +20,27 @@
 """ PyTorch Mixtral model."""
 import inspect
 import math
-import warnings
-from typing import List, Optional, Tuple, Union
-
 import torch
 import torch.nn.functional as F
 import torch.utils.checkpoint
+import warnings
 from torch import nn
 from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss, MSELoss
 from torch.sparse import to_sparse_semi_structured
-
-from .configuration_mixtral import MixtralConfig
-from ..pruning_modules import LoSparseLinear, ExpertLinear, GateLinear
-from ...activations import ACT2FN
-from ...cache_utils import Cache, DynamicCache
-from ...modeling_attn_mask_utils import (
+from transformers.activations import ACT2FN
+from transformers.cache_utils import Cache, DynamicCache
+from transformers.modeling_attn_mask_utils import (
     _prepare_4d_causal_attention_mask,
     _prepare_4d_causal_attention_mask_for_sdpa,
 )
-from ...modeling_outputs import (
+from transformers.modeling_outputs import (
     MoeCausalLMOutputWithPast,
     MoeModelOutputWithPast,
     SequenceClassifierOutputWithPast,
 )
-from ...modeling_utils import PreTrainedModel
-from ...pytorch_utils import is_torch_greater_or_equal_than_1_13
-from ...utils import (
+from transformers.modeling_utils import PreTrainedModel
+from transformers.pytorch_utils import is_torch_greater_or_equal_than_1_13
+from transformers.utils import (
     add_start_docstrings,
     add_start_docstrings_to_model_forward,
     is_flash_attn_2_available,
@@ -53,7 +48,10 @@ from ...utils import (
     logging,
     replace_return_docstrings,
 )
-from ...utils.import_utils import is_torch_fx_available
+from transformers.utils.import_utils import is_torch_fx_available
+from typing import List, Optional, Tuple, Union
+
+from .configuration_mixtral import MixtralConfig
 
 if is_flash_attn_2_available():
     from flash_attn import flash_attn_func, flash_attn_varlen_func
@@ -849,6 +847,91 @@ MIXTRAL_ATTENTION_CLASSES = {
 }
 
 
+class LoSparseLinear(nn.Module):
+    """
+    Examples
+    --------
+    >>> import torch
+    >>> linear = LoSparseLinear(16, 32, 2, has_bias=False)
+    >>> inp = torch.randn(2, 16)
+    >>> out = linear(inp)
+    >>> out.shape
+    torch.Size([2, 32])
+    """
+
+    def __init__(self, in_feature, out_feature, reduced_rank, has_bias=True, has_sparse=True):
+        super().__init__()
+        self.in_feature = in_feature
+        self.out_feature = out_feature
+        self.reduced_rank = reduced_rank
+        self.has_bias = has_bias
+        self.has_sparse = has_sparse
+
+        self.right = nn.Linear(in_feature, reduced_rank, bias=False)
+        self.left = nn.Linear(reduced_rank, out_feature, bias=False)
+        if self.has_sparse:
+            self.sparse = nn.Linear(in_feature, out_feature, bias=False)
+
+        if self.has_bias:
+            self.bias = nn.Parameter(torch.zeros(out_feature, requires_grad=True))
+
+        self.nonzero_idx = None
+        self.sparse_weight_pruned = None
+        self.SX = None
+        self.SX_deberta = None  # Deberta will use Q and K again
+
+    @property
+    def weight(self):
+        return self.left.weight @ self.right.weight
+
+    def forward(self, x):
+        """ Y = XW.T+B = X(LR+S).T+B = X(LR).T+XS.T+B """
+        l_r_x = self.left(self.right(x))
+        if self.has_sparse:
+            if self.sparse_weight_pruned is not None:
+                s_x_ = torch.matmul(x, self.sparse_weight_pruned.T)
+                b_, l_, d_ = x.shape
+
+                # restore y
+                # keep record for the first forward
+                if self.SX is None or self.SX_deberta is None:  # For QKV at the first time
+                    out_feature, in_feature = self.sparse.weight.shape
+                    device = x.device
+                    if b_ != 1:
+                        self.SX = torch.zeros(b_, l_, out_feature, device=device)
+                        self.SX[..., self.nonzero_idx] = s_x_
+                        y_ = l_r_x + self.SX + self.bias if self.has_bias else l_r_x + self.SX
+                    else:  # For QK at the second time
+                        self.SX_deberta = torch.zeros(b_, l_, out_feature, device=device)
+                        self.SX_deberta[..., self.nonzero_idx] = s_x_
+                        y_ = l_r_x + self.SX_deberta + self.bias if self.has_bias else l_r_x + self.SX_deberta
+
+                # do not need to create new cuda memory
+                else:
+                    if b_ != 1:
+                        self.SX[..., self.nonzero_idx] = s_x_
+                        y_ = l_r_x + self.SX + self.bias if self.has_bias else l_r_x + self.SX
+                    else:
+                        self.SX_deberta[..., self.nonzero_idx] = s_x_
+                        y_ = l_r_x + self.SX_deberta + self.bias if self.has_bias else l_r_x + self.SX_deberta
+            else:
+                s_x = self.sparse(x)
+                y_ = l_r_x + s_x + self.bias if self.has_bias else l_r_x + s_x
+        else:
+            y_ = l_r_x + self.bias if self.has_bias else l_r_x
+        return y_
+
+    def initialize_weight(self, left_weight, right_weight, sparse_weight=None, bias=None, requires_grad=False):
+        self.left.weight.data = left_weight.data
+        self.right.weight.data = right_weight.data
+        if self.has_sparse:
+            self.sparse.weight.data = sparse_weight.data
+
+    def prune_sparse(self):
+        self.nonzero_idx = torch.nonzero(self.sparse.weight.sum(dim=1)).flatten()
+        self.sparse_weight_pruned = nn.Parameter(self.sparse.weight[self.nonzero_idx, :])
+
+
 class MixtralBlockSparseTop2MLP(nn.Module):
     def __init__(self, config: MixtralConfig, layer_index: int, expert_index: int) -> None:
         super().__init__()
@@ -875,26 +958,16 @@ class MixtralBlockSparseTop2MLP(nn.Module):
             # self.w2 = nn.Linear(self.ffn_dim, self.hidden_dim, bias=False)
             # self.w3 = nn.Linear(self.hidden_dim, self.ffn_dim, bias=False)
             # TODO for wanda pruning
-            self.w1 = ExpertLinear(self.hidden_dim, self.ffn_dim, bias=False)  # gate_proj
-            self.w2 = ExpertLinear(self.ffn_dim, self.hidden_dim, bias=False)  # down_proj
-            self.w3 = ExpertLinear(self.hidden_dim, self.ffn_dim, bias=False)  # up_proj
+            self.w1 = nn.Linear(self.hidden_dim, self.ffn_dim, bias=False)  # gate_proj
+            self.w2 = nn.Linear(self.ffn_dim, self.hidden_dim, bias=False)  # down_proj
+            self.w3 = nn.Linear(self.hidden_dim, self.ffn_dim, bias=False)  # up_proj
 
         self.act_fn = ACT2FN[config.hidden_act]
 
-    # def forward(self, hidden_states):
-    #     # 🔍 The vanilla version.
-    #     current_hidden_states = self.act_fn(self.w1(hidden_states)) * self.w3(hidden_states)
-    #     current_hidden_states = self.w2(current_hidden_states)
-    #     # The code snippet is using the variable `current_hidden_states` as input to a function or method
-    #     # called `w2`. The result of this function call is then assigned back to the variable
-    #     # `current_hidden_states`.
-    #     return current_hidden_states
-
-    # # 🔍 TODO for wanda pruning
-    def forward(self, hidden_states, routing_scores=None):
+    def forward(self, hidden_states):
         # 🔍 To get the hook of routing scores.
-        current_hidden_states = self.act_fn(self.w1(hidden_states, routing_scores)) * self.w3(hidden_states, routing_scores)
-        current_hidden_states = self.w2(current_hidden_states, routing_scores)
+        current_hidden_states = self.act_fn(self.w1(hidden_states)) * self.w3(hidden_states)
+        current_hidden_states = self.w2(current_hidden_states)
         return current_hidden_states
 
 
@@ -937,10 +1010,17 @@ class MixtralSparseMoeBlock(nn.Module):
 
         # 🔍 For layer-wise expert_num
         self.num_experts = config.num_local_experts if isinstance(config.num_local_experts, int) else config.num_local_experts[layer_index]
-        self.top_k = config.num_experts_per_tok if (config.num_experts_per_tok <= self.num_experts) else self.num_experts
+
+        # 🔍 for compatibility of different gate size
+        if hasattr(config, "gate_num_experts"):
+            self.gate_num_experts = config.gate_num_experts[layer_index] if isinstance(config.gate_num_experts, list) else config.gate_num_experts
+        else:
+            self.gate_num_experts = self.num_experts
+
+        self.top_k = min(config.num_experts_per_tok, self.gate_num_experts)
 
         # gating
-        self.gate = GateLinear(self.hidden_dim, self.num_experts, bias=False)  # 🔍
+        self.gate = nn.Linear(self.hidden_dim, self.gate_num_experts, bias=False)  # 🔍
         expert_layer = MixtralBlockSparseTop2MLP if mode == "static" else DynamicMixtralBLockSparseTop2MLP
         self.experts = nn.ModuleList([expert_layer(config, layer_index=layer_index, expert_index=i) for i in range(self.num_experts)])
 
@@ -999,10 +1079,10 @@ class MixtralSparseMoeBlock(nn.Module):
             # routing_scores_sparsity = routing_weights_sparsity[top_x_list, idx_list, None]
             # print(f"routing_scores_sparsity: {routing_scores_sparsity}")
             # 🔍 vanilla forward
-            # current_hidden_states = expert_layer(current_state) * routing_weights[top_x_list, idx_list, None]
+            current_hidden_states = expert_layer(current_state) * routing_weights[top_x_list, idx_list, None]
 
             # 🔍 forward for scoring
-            current_hidden_states = expert_layer(current_state, routing_weights[top_x_list, idx_list, None]) * routing_weights[top_x_list, idx_list, None]
+            # current_hidden_states = expert_layer(current_state, routing_weights[top_x_list, idx_list, None]) * routing_weights[top_x_list, idx_list, None]
             #####################################
 
             # However `index_add_` only support torch tensors for indexing so we'll use
@@ -1783,13 +1863,7 @@ class DynamicSkippingMixtralSparseMoeBlockWrapper(nn.Module):
         self.top_k = model.top_k
         self.gate = model.gate
         self.experts = model.experts
-        # self.sInit_value = sInit_value
-        # self.sparseThreshold = nn.Parameter(self.initialize_sInit())
         self.delta = delta
-        # self.activation = torch.relu
-        # self.f = torch.sigmoid
-        # self.scale = 1
-        # self.beta = beta  # 🔍 needs to ensure
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         """ """

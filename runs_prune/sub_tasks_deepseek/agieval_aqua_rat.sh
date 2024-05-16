@@ -73,16 +73,12 @@ sparse_type=$8
 
 trust_remote_code=True
 
-batch_size="auto"
-
 if [ $autogptq == True ]; then
   trust_remote_code=False
-  batch_size=16
 fi
 
 if [ $autoawq == True ]; then
   trust_remote_code=False
-  batch_size=16 # 不能auto，不然会卡住
 fi
 
 echo "Model Path \"${model_path}\""
@@ -96,6 +92,6 @@ srun lm_eval \
   --model_args pretrained=${model_path},dtype="bfloat16",parallelize=True,trust_remote_code=${trust_remote_code},use_fast_tokenizer=${use_fast_tokenizer},max_length=${max_length},autogptq=${autogptq},autoawq=${autoawq},sparse_type=${sparse_type} \
   --tasks agieval_aqua_rat \
   --num_fewshot ${num_fewshot} \
-  --batch_size ${batch_size} \
+  --batch_size auto \
   --output_path ${save_path}
 #  --log_samples \

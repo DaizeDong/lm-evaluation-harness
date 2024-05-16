@@ -1,8 +1,8 @@
 #!/usr/bin/bash
 
-#SBATCH --job-name=agieval_aqua_rat
-#SBATCH --output=/mnt/petrelfs/dongdaize.d/workspace-evaluaiton/lm-evaluation-harness-github/logs_prune/agieval_aqua_rat/%x-%j.log
-#SBATCH --error=/mnt/petrelfs/dongdaize.d/workspace-evaluaiton/lm-evaluation-harness-github/logs_prune/agieval_aqua_rat/%x-%j.log
+#SBATCH --job-name=truthfulqa
+#SBATCH --output=/mnt/petrelfs/dongdaize.d/workspace-evaluaiton/lm-evaluation-harness-github/logs_prune/truthfulqa/%x-%j.log
+#SBATCH --error=/mnt/petrelfs/dongdaize.d/workspace-evaluaiton/lm-evaluation-harness-github/logs_prune/truthfulqa/%x-%j.log
 
 #SBATCH --partition=MoE
 #SBATCH --ntasks-per-node=1
@@ -68,7 +68,8 @@ max_length=$3
 num_fewshot=$4
 autogptq=$5
 autoawq=$6
-sparse_type=$7
+use_fast_tokenizer=$7
+sparse_type=$8
 
 trust_remote_code=True
 
@@ -88,10 +89,9 @@ mkdir -p ${save_path}
 
 srun lm_eval \
   --model hf \
-  --model_args pretrained=${model_path},dtype="bfloat16",parallelize=True,trust_remote_code=${trust_remote_code},use_fast_tokenizer=False,max_length=${max_length},autogptq=${autogptq},autoawq=${autoawq},sparse_type=${sparse_type} \
-  --tasks agieval_aqua_rat \
+  --model_args pretrained=${model_path},dtype="bfloat16",parallelize=True,trust_remote_code=${trust_remote_code},use_fast_tokenizer=${use_fast_tokenizer},max_length=${max_length},autogptq=${autogptq},autoawq=${autoawq},sparse_type=${sparse_type} \
+  --tasks truthfulqa \
   --num_fewshot ${num_fewshot} \
-  --batch_size "auto" \
+  --batch_size auto \
   --output_path ${save_path}
-
 #  --log_samples \

@@ -4,6 +4,32 @@ root_dir="/mnt/petrelfs/dongdaize.d/workspace-evaluaiton/lm-evaluation-harness-g
 max_length=4096
 
 folder_name_list=(
+  #"results_prune/Mixtral-expert_drop-layerwise_pruning-r0"
+  #"results_prune/Mixtral-expert_drop-layerwise_pruning-r1"
+  #"results_prune/Mixtral-expert_drop-layerwise_pruning-r2"
+  #"results_prune/Mixtral-expert_drop-layerwise_pruning-r3"
+  #"results_prune/Mixtral-expert_drop-layerwise_pruning-r4"
+  #"results_prune/Mixtral-expert_drop-layerwise_pruning-r5"
+  #"results_prune/Mixtral-expert_drop-layerwise_pruning-r6"
+  #"results_prune/Mixtral-expert_drop-layerwise_pruning-r7"
+
+  "results_prune/Mixtral-expert_drop-global_pruning-r0"
+  "results_prune/Mixtral-expert_drop-global_pruning-r1"
+  "results_prune/Mixtral-expert_drop-global_pruning-r2"
+  "results_prune/Mixtral-expert_drop-global_pruning-r3"
+  #"results_prune/Mixtral-expert_drop-global_pruning-r4"
+  #"results_prune/Mixtral-expert_drop-global_pruning-r5"
+  #"results_prune/Mixtral-expert_drop-global_pruning-r6"
+  #"results_prune/Mixtral-expert_drop-global_pruning-r7"
+  #"results_prune/Mixtral-expert_drop-global_pruning-r0-DyGate"
+  #"results_prune/Mixtral-expert_drop-global_pruning-r1-DyGate"
+  #"results_prune/Mixtral-expert_drop-global_pruning-r2-DyGate"
+  #"results_prune/Mixtral-expert_drop-global_pruning-r3-DyGate"
+  #"results_prune/Mixtral-expert_drop-global_pruning-r4-DyGate"
+  #"results_prune/Mixtral-expert_drop-global_pruning-r5-DyGate"
+  #"results_prune/Mixtral-expert_drop-global_pruning-r6-DyGate"
+  #"results_prune/Mixtral-expert_drop-global_pruning-r7-DyGate"
+
   # "results_prune/Mixtral-layer_drop-discrete-drop14"
   # "results_prune/Mixtral-layer_drop-discrete-drop16"
   # "results_prune/Mixtral-layer_drop-discrete-drop18"
@@ -76,9 +102,13 @@ autoawq=False
 num_fewshot_list=(0 0 0 0 0 0)
 task_name_list=("boolq" "hellaswag" "mmlu" "openbookqa" "rte" "winogrande")
 
+#num_fewshot_list=(0 0 0 0)
+#task_name_list=("hellaswag" "mmlu" "openbookqa" "winogrande")
+
 #num_fewshot_list=(0)
 #task_name_list=("winogrande")
 
+sleep 1200
 for folder_name in "${folder_name_list[@]}"; do
   for ((i = 0; i < ${#num_fewshot_list[@]}; i++)); do
     num_fewshot=${num_fewshot_list[i]}
@@ -92,11 +122,10 @@ for folder_name in "${folder_name_list[@]}"; do
     ############## FOR COMPRESSED MODEL ##############
     model_path="/mnt/petrelfs/dongdaize.d/workspace/compression/${folder_name}/checkpoint"
     save_path="${root_dir}/results_prune/${task_name}/${num_fewshot}shot-${folder_name}"
-    rm ${save_path}/results.json
 
+    rm ${save_path}/results*.json
     sbatch ${root_dir}/runs_prune/sub_tasks_mixtral/${task_name}.sh ${model_path} ${save_path} ${max_length} ${num_fewshot} $autogptq $autoawq $sparse_type &
     sleep 1
   done
-  sleep 300
 done
 wait

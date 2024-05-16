@@ -284,8 +284,14 @@ class MoEGate(nn.Module):
     def __init__(self, config, layer_idx: int):
         super().__init__()
         self.config = config
-        self.top_k = config.num_experts_per_tok
-        self.n_routed_experts = config.n_routed_experts[layer_idx] if isinstance(config.n_routed_experts, list) else config.n_routed_experts  # 🔍
+
+        # 🔍 for compatibility of different gate size
+        if hasattr(config, "gate_num_experts"):
+            self.n_routed_experts = config.gate_num_experts[layer_idx] if isinstance(config.gate_num_experts, list) else config.gate_num_experts
+        else:
+            self.n_routed_experts = config.n_routed_experts[layer_idx] if isinstance(config.n_routed_experts, list) else config.n_routed_experts
+
+        self.top_k = min(config.num_experts_per_tok, self.n_routed_experts)
 
         self.scoring_func = config.scoring_func
         self.alpha = config.aux_loss_alpha
@@ -409,6 +415,8 @@ class DeepseekMoE(nn.Module):
         tokens_per_expert = flat_expert_indices.bincount().cpu().numpy().cumsum(0)
         token_idxs = idxs // self.num_experts_per_tok
         for i, end_idx in enumerate(tokens_per_expert):
+            if i >= self.n_routed_experts:  # 🔍 this is for compatibility of different gate size
+                break
             start_idx = 0 if i == 0 else tokens_per_expert[i - 1]
             if start_idx == end_idx:
                 continue
