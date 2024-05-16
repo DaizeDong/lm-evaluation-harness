@@ -49,7 +49,8 @@ class GeneralConfigTracker:
             return args_after_key.split(",")[0]
 
         # order does matter, e.g. peft and delta are provided together with pretrained
-        prefixes = ["peft=", "delta=", "pretrained=", "model=", "path=", "engine="]
+        # prefixes = ["peft=", "delta=", "pretrained=", "model=", "path=", "engine="]
+        prefixes = ["peft=", "delta=", "model=", "path=", "engine="]  # 🔍 this is too annoying......
         for prefix in prefixes:
             if prefix in model_args:
                 return extract_model_name(model_args, prefix)

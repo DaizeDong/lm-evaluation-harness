@@ -21,3 +21,12 @@ lm_eval/caching/.cache
 # don't track files created by wandb
 wandb
 examples/wandb
+/logs_debug/
+/logs_merge/
+/logs_mod/
+/logs_prune/
+/results/
+/results_debug/
+/results_merge/
+/results_mod/
+/results_prune/
