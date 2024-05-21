@@ -20,10 +20,12 @@
 """ PyTorch Mixtral model."""
 import inspect
 import math
+import warnings
+from typing import List, Optional, Tuple, Union
+
 import torch
 import torch.nn.functional as F
 import torch.utils.checkpoint
-import warnings
 from torch import nn
 from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss, MSELoss
 from torch.sparse import to_sparse_semi_structured
@@ -49,7 +51,6 @@ from transformers.utils import (
     replace_return_docstrings,
 )
 from transformers.utils.import_utils import is_torch_fx_available
-from typing import List, Optional, Tuple, Union
 
 from .configuration_mixtral import MixtralConfig
 
@@ -1014,10 +1015,10 @@ class MixtralSparseMoeBlock(nn.Module):
         # 🔍 for compatibility of different gate size
         if hasattr(config, "gate_num_experts"):
             self.gate_num_experts = config.gate_num_experts[layer_index] if isinstance(config.gate_num_experts, list) else config.gate_num_experts
+            self.top_k = config.num_experts_per_tok
         else:
             self.gate_num_experts = self.num_experts
-
-        self.top_k = min(config.num_experts_per_tok, self.gate_num_experts)
+            self.top_k = min(config.num_experts_per_tok, self.num_experts)
 
         # gating
         self.gate = nn.Linear(self.hidden_dim, self.gate_num_experts, bias=False)  # 🔍
@@ -1055,7 +1056,7 @@ class MixtralSparseMoeBlock(nn.Module):
 
         # One hot encode the selected experts to create an expert mask
         # this will be used to easily index which expert is going to be sollicitated
-        expert_mask = torch.nn.functional.one_hot(selected_experts, num_classes=self.num_experts).permute(2, 1, 0)
+        expert_mask = torch.nn.functional.one_hot(selected_experts, num_classes=self.gate_num_experts).permute(2, 1, 0)  # 🔍 for compatibility of different gate size
 
         # Loop over all available experts in the model and perform the computation on each expert
         for expert_idx in range(self.num_experts):

@@ -45,13 +45,20 @@ folder_name1="converted"
 ####################################################
 #folder_name2="ablation_capacity/mixed-FULL-ExAttn-NoScale-freq1-cap0.9-cos1.0"
 #folder_name2="ablation_capacity/mixed-FULL-ExAttn-NoScale-freq1-cap0.8-cos1.0"
+#folder_name2="ablation_capacity/mixed-FULL-ExAttn-NoScale-freq1-cap0.9-cos1.0-EvalTopK"
+#folder_name2="ablation_capacity/mixed-FULL-ExAttn-NoScale-freq1-cap0.8-cos1.0-EvalTopK"
 
-folder_name2="ablation_capacity/mixed-FULL-ExAttn-NoScale-freq1-cap0.9-cos-global1.0"
+#folder_name2="ablation_capacity/mixed-FULL-ExAttn-NoScale-freq1-cap0.9-cos-global1.0"
 #folder_name2="ablation_capacity/mixed-FULL-ExAttn-NoScale-freq1-cap0.8-cos-global1.0"
 #folder_name2="ablation_capacity/mixed-FULL-ExAttn-NoScale-freq1-cap0.7-cos-global1.0"
 #folder_name2="ablation_capacity/mixed-FULL-ExAttn-NoScale-freq1-cap0.6-cos-global1.0"
+#folder_name2="ablation_capacity/mixed-FULL-ExAttn-NoScale-freq1-cap0.9-cos-global1.0-EvalTopK"
+#folder_name2="ablation_capacity/mixed-FULL-ExAttn-NoScale-freq1-cap0.8-cos-global1.0-EvalTopK"
+#folder_name2="ablation_capacity/mixed-FULL-ExAttn-NoScale-freq1-cap0.7-cos-global1.0-EvalTopK"
+#folder_name2="ablation_capacity/mixed-FULL-ExAttn-NoScale-freq1-cap0.6-cos-global1.0-EvalTopK"
 
-#folder_name2="ablation_capacity/mixed-FULL-ExAttn-freq1-cap0.9-cos-global1.0"
+#folder_name2="ablation_capacity/mixed-FULL-ExAttn-Scale2.0-Gap0.05-freq1-cap0.9-cos-global1.0"
+folder_name2="ablation_capacity/mixed-FULL-ExAttn-Scale2.0-Gap0.05-freq1-cap0.9-cos1.0"
 
 ####################################################
 

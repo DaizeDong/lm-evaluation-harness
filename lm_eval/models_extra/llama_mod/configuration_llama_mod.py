@@ -61,6 +61,9 @@ class LlamaMoDConfig(PretrainedConfig):
             mod_loss_coefficient: float = 0.1,
             mod_loss_type: str = "self",  # self cos cos-global
             rescale_hidden_states: bool = True,
+            scale_factor: float = 1.0,
+            scale_gap: float = 1.0,
+            eval_use_topk: bool = False,
             **kwargs,
     ):
         self.vocab_size = vocab_size
@@ -92,6 +95,9 @@ class LlamaMoDConfig(PretrainedConfig):
         self.mod_loss_coefficient = mod_loss_coefficient
         self.mod_loss_type = mod_loss_type
         self.rescale_hidden_states = rescale_hidden_states
+        self.scale_factor = scale_factor
+        self.scale_gap = scale_gap
+        self.eval_use_topk = eval_use_topk
 
         super().__init__(
             pad_token_id=pad_token_id,

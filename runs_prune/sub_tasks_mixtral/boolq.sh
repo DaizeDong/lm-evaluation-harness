@@ -91,7 +91,7 @@ srun lm_eval \
   --model_args pretrained=${model_path},dtype="bfloat16",parallelize=True,trust_remote_code=${trust_remote_code},use_fast_tokenizer=False,max_length=${max_length},autogptq=${autogptq},autoawq=${autoawq},sparse_type=${sparse_type} \
   --tasks boolq \
   --num_fewshot ${num_fewshot} \
-  --batch_size "auto" \
-  --output_path ${save_path}
+  --output_path ${save_path} \
+  --batch_size 32 \
 
 #  --log_samples \

@@ -62,6 +62,9 @@ class LlamaMoDDecoderLayer(nn.Module):
         self.input_layernorm = LlamaRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.post_attention_layernorm = LlamaRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.rescale_hidden_states = config.rescale_hidden_states  # 🔍
+        self.scale_factor = config.scale_factor  # 🔍 scale the central value of sigmoid score
+        self.scale_gap = config.scale_gap  # 🔍 scale the range between the maximum & minimum values of sigmoid scores
+        # Final scores: 0.5 * scale_factor + (sigmoid(x) - 0.5) * scale_gap
 
     def forward(
             self,
@@ -104,7 +107,11 @@ class LlamaMoDDecoderLayer(nn.Module):
         if topk_scores is None:
             hidden_states = residual + hidden_states
         else:
-            hidden_states = residual + (hidden_states * topk_scores[:, :, None] if self.rescale_hidden_states else hidden_states)
+            if self.rescale_hidden_states:
+                topk_scores = 0.5 * self.scale_factor + (topk_scores - 0.5) * self.scale_gap  # scale the scores
+                hidden_states = residual + hidden_states * topk_scores[:, :, None]
+            else:
+                hidden_states = residual + hidden_states
 
         outputs = (hidden_states,)
 
@@ -147,6 +154,7 @@ class LlamaMoDModel(LlamaMoDPreTrainedModel):
         self.gradient_checkpointing = False
 
         # 🔍
+        self.is_mod = self.config.is_mod
         self.routers = nn.ModuleList(
             [
                 nn.Linear(config.hidden_size, 1, bias=False) if config.is_mod[layer_idx] else None  # 🔍
@@ -155,6 +163,7 @@ class LlamaMoDModel(LlamaMoDPreTrainedModel):
         )
         self.mod_capacity = config.mod_capacity
         self.mod_loss_type = config.mod_loss_type
+        self.eval_use_topk = config.eval_use_topk
         self.sigmoid = nn.Sigmoid()
         self.bce_loss = nn.BCELoss()
 
@@ -237,13 +246,14 @@ class LlamaMoDModel(LlamaMoDPreTrainedModel):
         mod_losses = torch.tensor(0., device=hidden_states.device, dtype=torch.float32)  # 🔍
 
         if self.training and self.mod_loss_type == "cos-global":  # 🔍
+            # 🔍🔍🔍🔍🔍🔍🔍🔍🔍🔍🔍🔍🔍🔍🔍🔍🔍🔍🔍🔍🔍🔍🔍🔍🔍
             raise NotImplementedError
 
         for layer_index, decoder_layer in enumerate(self.layers):
             if output_hidden_states:
                 all_hidden_states += (hidden_states,)
 
-            if self.config.is_mod[layer_index]:  # 🔍
+            if self.is_mod[layer_index]:  # 🔍
                 """🔍 Get Indices / Masks for MoD Routing"""
                 batch_size, seq_len, hidden_size = hidden_states.shape
                 logits = self.routers[layer_index](hidden_states).squeeze(-1)  # (batch_size, seq_len)
@@ -254,7 +264,7 @@ class LlamaMoDModel(LlamaMoDPreTrainedModel):
                 # print("logits", logits.shape, logits.dtype, logits)
                 # print("sigmoid_logits", sigmoid_logits.shape, sigmoid_logits.dtype, sigmoid_logits)
 
-                if self.training:
+                if self.training or self.eval_use_topk:
                     """[Pretraining | Finetuning] Use the batch-wise TopK to select tokens."""
                     # TODO: The implementation here is problematic as the true topk number should be different for each sample considering the padding tokens.
                     # TODO: However, it is inefficient to use the above implementation as PyTorch doesn't support it well.
@@ -283,7 +293,6 @@ class LlamaMoDModel(LlamaMoDPreTrainedModel):
                 else:
                     """[Evaluation] Use the binary-classification to select tokens."""
                     # use router logits to select the tokens
-                    # 🔍🔍🔍🔍🔍🔍🔍🔍🔍🔍🔍🔍🔍🔍🔍🔍🔍🔍🔍🔍🔍🔍🔍🔍🔍
                     topk_mask = (sigmoid_logits > 0.5)  # (batch_size, seq_len)
                     # topk_mask = torch.ones((batch_size, seq_len), device=hidden_states.device, dtype=torch.bool)
 

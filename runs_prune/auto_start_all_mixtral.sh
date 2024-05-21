@@ -84,34 +84,43 @@ autoawq=False
 #sparse_type="2:4"
 
 # GPTQ
-#folder_name="results_quantization/Mixtral-8x7B-v0.1-GPTQ-4bits"
-#autogptq=True
+source ~/anaconda3/bin/activate awq
+folder_name="results_quantization/Mixtral-8x7B-v0.1-GPTQ-4bits"
+autogptq=True
 
 # AWQ
+#source ~/anaconda3/bin/activate awq
 #folder_name="results_quantization/Mixtral-8x7B-v0.1-AWQ-4bits"
+#folder_name="results_assemble/Mixtral-8x7B-v0.1-AWQ-4bits-block_drop-discrete-drop5"
+#folder_name="results_assemble/Mixtral-8x7B-v0.1-AWQ-4bits-expert_drop-global_pruning-r7"
+#folder_name="results_assemble/Mixtral-8x7B-v0.1-AWQ-4bits-expert_drop-global_pruning-r6"
+#folder_name="results_assemble/Mixtral-8x7B-v0.1-AWQ-4bits-layer_drop-discrete-drop8"
 #autoawq=True
 
 ####################################################################
 #num_fewshot_list=(5 0 0 0 0 0 0 0)
 #task_name_list=("gsm8k" "arc_challenge" "boolq" "hellaswag" "mmlu" "openbookqa" "rte" "winogrande")
 
+#num_fewshot_list=(0 0 0 0 0 0 0 0)
+#task_name_list=("piqa" "arc_challenge" "boolq" "hellaswag" "mmlu" "openbookqa" "rte" "winogrande")
+
 #num_fewshot_list=(0 0 0 0 0 0)
 #task_name_list=("boolq" "hellaswag" "mmlu" "openbookqa" "rte" "winogrande")
 
-num_fewshot_list=(0 0 0 0)
-task_name_list=("hellaswag" "mmlu" "openbookqa" "winogrande")
+#num_fewshot_list=(0 0 0 0)
+#task_name_list=("hellaswag" "mmlu" "openbookqa" "winogrande")
 
-#num_fewshot_list=(5)
-#task_name_list=("agieval_aqua_rat")
-
-#num_fewshot_list=(0 5 10 0 5 10)
-#task_name_list=("truthfulqa" "truthfulqa" "truthfulqa" "triviaqa" "triviaqa" "triviaqa")
+# num_fewshot_list=(0)
+# task_name_list=("boolq")
 
 #num_fewshot_list=(5)
 #task_name_list=("gsm8k")
 
-#num_fewshot_list=(0)
-#task_name_list=("winogrande")
+num_fewshot_list=(0)
+task_name_list=("piqa")
+
+# num_fewshot_list=(0)
+# task_name_list=("winogrande")
 
 for ((i = 0; i < ${#num_fewshot_list[@]}; i++)); do
   num_fewshot=${num_fewshot_list[i]}
@@ -119,15 +128,25 @@ for ((i = 0; i < ${#num_fewshot_list[@]}; i++)); do
   echo "${task_name}: ${num_fewshot} shot"
 
   ############## FOR ORIGINAL MODEL ##############
-  model_path=/mnt/petrelfs/dongdaize.d/workspace/compression/models/mixtral
-  save_path="${root_dir}/results_prune/${task_name}/${num_fewshot}shot-Mixtral"
+  #  model_path=/mnt/petrelfs/dongdaize.d/workspace/compression/models/mixtral
+  #  save_path="${root_dir}/results_prune/${task_name}/${num_fewshot}shot-Mixtral"
 
   ############## FOR COMPRESSED MODEL ##############
-  #  model_path="/mnt/petrelfs/dongdaize.d/workspace/compression/${folder_name}/checkpoint"
-  #  save_path="${root_dir}/results_prune/${task_name}/${num_fewshot}shot-${folder_name}"
+  model_path="/mnt/petrelfs/dongdaize.d/workspace/compression/${folder_name}/checkpoint"
+  save_path="${root_dir}/results_prune/${task_name}/${num_fewshot}shot-${folder_name}"
 
-  rm ${save_path}/results*.json
-  sbatch ${root_dir}/runs_prune/sub_tasks_mixtral/${task_name}.sh ${model_path} ${save_path} ${max_length} ${num_fewshot} $autogptq $autoawq $sparse_type &
-  sleep 1
+  ##################################################
+  result_file="${save_path}/results*.json"
+  #  rm ${result_file}
+  # if ls ${result_file} >/dev/null 2>&1; then
+  #   echo "Result file \"${result_file}\" already exists. Do not apply the task."
+  # else
+  if [ ! -d ${model_path} ]; then
+    echo "Model path \"${model_path}\" not exists. Do not apply the task."
+  else
+    sbatch ${root_dir}/runs_prune/sub_tasks_mixtral/${task_name}.sh ${model_path} ${save_path} ${max_length} ${num_fewshot} $autogptq $autoawq $sparse_type &
+    sleep 1
+  fi
+  # fi
 done
 wait

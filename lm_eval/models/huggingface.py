@@ -270,7 +270,8 @@ class HFLM(TemplateLM):
         # access self._model through self.model property outside this method
         if isinstance(self.model, torch.nn.Module):
             self.model.eval()
-            self.model.tie_weights()
+            if not autogptq and not autoawq:  # 🔍
+                self.model.tie_weights()
 
         if isinstance(pretrained, str) and (gpus >= 1 or str(self.device) == "mps"):
             # TODO: can remove this whole snippet except in the mps case, perhaps?
@@ -593,8 +594,9 @@ class HFLM(TemplateLM):
             try:
                 sys.path = ["/mnt/petrelfs/dongdaize.d/workspace/compression/src/llmtuner/train/quantization/AutoAWQ"] + sys.path
                 import awq
+                importlib.reload(awq)  # 重新加载模块
                 from awq import AutoAWQForCausalLM
-                # print(f"awq: {awq}")
+                print(f"awq: {awq}")
 
             except ModuleNotFoundError:
                 raise Exception(
@@ -696,6 +698,16 @@ class HFLM(TemplateLM):
                     )
 
             del _model_delta
+
+        # 🔍
+        total_memory_used = 0
+        for device in range(torch.cuda.device_count()):
+            memory_used = torch.cuda.max_memory_allocated(device) / (1024 ** 3)
+            total_memory_used += memory_used
+            memory_pct = memory_used / (torch.cuda.get_device_properties(device).total_memory / (1024 ** 3)) * 100
+            print(f" ** Max Memory (device: {device}): {memory_used:.2f} GB ({memory_pct:.2f}%)")
+
+        print(f"Memory (VRAM): {total_memory_used:.2f} GB ({memory_pct:.2f}%)")
 
         return None
 

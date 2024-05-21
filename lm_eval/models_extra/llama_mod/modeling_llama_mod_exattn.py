@@ -53,6 +53,9 @@ class LlamaMoDExAttnDecoderLayer(nn.Module):
         self.input_layernorm = LlamaRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.post_attention_layernorm = LlamaRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.rescale_hidden_states = config.rescale_hidden_states  # 🔍
+        self.scale_factor = config.scale_factor  # 🔍 scale the central value of sigmoid score
+        self.scale_gap = config.scale_gap  # 🔍 scale the range between the maximum & minimum values of sigmoid scores
+        # Final scores: 0.5 * scale_factor + (sigmoid(x) - 0.5) * scale_gap
         self.mod_loss_type = config.mod_loss_type  # 🙀 for ExAttn only
 
     def forward(
@@ -112,7 +115,13 @@ class LlamaMoDExAttnDecoderLayer(nn.Module):
             if hidden_states.shape[0] > 0:
                 hidden_states = self.post_attention_layernorm(hidden_states)
                 hidden_states = self.mlp(hidden_states)
-                topk_hidden_states[topk_mask] = hidden_states * topk_scores[:, None] if self.rescale_hidden_states else hidden_states
+
+                if self.rescale_hidden_states:
+                    topk_scores = 0.5 * self.scale_factor + (topk_scores - 0.5) * self.scale_gap  # scale the scores
+                    topk_hidden_states[topk_mask] = hidden_states * topk_scores[:, None]
+                else:
+                    topk_hidden_states[topk_mask] = hidden_states
+
                 hidden_states = residual + topk_hidden_states
             else:  # no token is selected for the froward process
                 hidden_states = residual
@@ -174,6 +183,7 @@ class LlamaMoDExAttnModel(LlamaMoDExAttnPreTrainedModel):
         self.gradient_checkpointing = False
 
         # 🔍
+        self.is_mod = self.config.is_mod
         self.routers = nn.ModuleList(
             [
                 nn.Linear(config.hidden_size, 1, bias=False) if config.is_mod[layer_idx] else None  # 🔍
@@ -182,6 +192,7 @@ class LlamaMoDExAttnModel(LlamaMoDExAttnPreTrainedModel):
         )
         self.mod_capacity = config.mod_capacity
         self.mod_loss_type = config.mod_loss_type
+        self.eval_use_topk = config.eval_use_topk
         self.sigmoid = nn.Sigmoid()
         self.bce_loss = nn.BCELoss()
 
@@ -271,7 +282,7 @@ class LlamaMoDExAttnModel(LlamaMoDExAttnPreTrainedModel):
             if output_hidden_states:
                 all_hidden_states += (hidden_states,)
 
-            if self.config.is_mod[layer_index]:  # 🔍
+            if self.is_mod[layer_index]:  # 🔍
                 """🔍 Get Indices / Masks for MoD Routing"""
                 batch_size, seq_len, hidden_size = hidden_states.shape
                 logits = self.routers[layer_index](hidden_states).squeeze(-1)  # (batch_size, seq_len)
@@ -281,7 +292,7 @@ class LlamaMoDExAttnModel(LlamaMoDExAttnPreTrainedModel):
                 # print("logits", logits.shape, logits.dtype, logits)
                 # print("sigmoid_logits", sigmoid_logits.shape, sigmoid_logits.dtype, sigmoid_logits)
 
-                if self.training:
+                if self.training or self.eval_use_topk:
                     """[Pretraining | Finetuning] Use the batch-wise TopK to select tokens."""
                     # TODO: The implementation here is problematic as the true topk number should be different for each sample considering the padding tokens.
                     # TODO: However, it is inefficient to use the above implementation as PyTorch doesn't support it well.
@@ -313,15 +324,9 @@ class LlamaMoDExAttnModel(LlamaMoDExAttnPreTrainedModel):
                             topk_mask = attention_mask & (sigmoid_logits >= threshold)  # (batch_size, seq_len)
                             topk_scores = sigmoid_logits[topk_mask]  # (topk_num)
                     else:
-                        print(f"layer {layer_index}, num_tokens_selected = {num_tokens_selected}, mod_capacity = {this_layer_mod_capacity}")
                         topk_mask = torch.zeros((batch_size, seq_len), device=hidden_states.device, dtype=torch.bool)
                         topk_scores = torch.zeros((batch_size, seq_len), device=hidden_states.device, dtype=sigmoid_logits.dtype)
-
-                    # check if calculate the similarities of hidden features
-                    if self.mod_loss_type in ("cos", "cos-global"):
-                        calculate_similarity = True
-                    else:
-                        calculate_similarity = False
+                        # print(f"layer {layer_index}, num_tokens_selected = {num_tokens_selected}, mod_capacity = {this_layer_mod_capacity}")
 
                     # print("num_tokens_selected", num_tokens_selected)
                     # print("threshold", threshold)
@@ -331,11 +336,16 @@ class LlamaMoDExAttnModel(LlamaMoDExAttnPreTrainedModel):
                     # use router logits to select the tokens
                     topk_mask = (sigmoid_logits > 0.5)  # (batch_size, seq_len)
                     topk_scores = sigmoid_logits[topk_mask]  # (topk_num)
-                    calculate_similarity = False
 
                 # print("topk_mask", topk_mask.shape, topk_mask.dtype, topk_mask)
                 # print("topk_scores", topk_scores.shape, topk_scores.dtype, topk_scores)
                 # print("calculate_similarity", calculate_similarity)
+
+                # check if calculate the similarities of hidden features
+                if self.training and self.mod_loss_type in ("cos", "cos-global"):
+                    calculate_similarity = True
+                else:
+                    calculate_similarity = False
 
                 """🔍 MoD Loss"""
                 mod_loss = None
@@ -439,6 +449,7 @@ class LlamaMoDExAttnModel(LlamaMoDExAttnPreTrainedModel):
             if output_attentions:
                 all_self_attns += (layer_outputs[1],)
 
+        # 🔍 Post calculation of MoD loss for the "cos-global" setting
         if self.training and self.mod_loss_type == "cos-global":  # 🔍
             mod_layer_num = len(sigmoid_logits_cache)
             sigmoid_logits_cache = torch.stack(sigmoid_logits_cache, dim=0)  # (mod_layer_num, batch_size, seq_len)
