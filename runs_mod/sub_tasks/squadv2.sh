@@ -1,12 +1,12 @@
 #!/usr/bin/bash
 
-#SBATCH --job-name=gsm8k
-#SBATCH --output=/mnt/petrelfs/dongdaize.d/workspace-evaluaiton/lm-evaluation-harness-github/logs_mod/gsm8k/%x-%j.log
-#SBATCH --error=/mnt/petrelfs/dongdaize.d/workspace-evaluaiton/lm-evaluation-harness-github/logs_mod/gsm8k/%x-%j.log
+#SBATCH --job-name=squadv2
+#SBATCH --output=/mnt/petrelfs/dongdaize.d/workspace-evaluaiton/lm-evaluation-harness-github/logs_mod/squadv2/%x-%j.log
+#SBATCH --error=/mnt/petrelfs/dongdaize.d/workspace-evaluaiton/lm-evaluation-harness-github/logs_mod/squadv2/%x-%j.log
 
 #SBATCH --partition=MoE
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=64
+#SBATCH --cpus-per-task=32
 #SBATCH --mem=0
 
 #SBATCH --nodes=1
@@ -73,15 +73,14 @@ echo "Model Path \"${model_path}\""
 echo "Save Path \"${save_path}\""
 echo "Batch Size \"${batch_size}\""
 echo "Sequence Length \"${max_length}\""
-echo "Num Shots \"${num_fewshot}\""
 
 mkdir -p ${save_path}
 
 srun lm_eval \
   --model hf \
   --model_args pretrained=${model_path},dtype="bfloat16",parallelize=${parallelize},trust_remote_code=True,use_fast_tokenizer=False,max_length=${max_length} \
-  --tasks gsm8k \
-  --num_fewshot ${num_fewshot} \
+  --tasks squadv2 \
   --batch_size ${batch_size} \
   --output_path ${save_path}
-#  --log_samples
+
+#  --log_samples \

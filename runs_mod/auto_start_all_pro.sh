@@ -2,7 +2,7 @@
 root_dir="/mnt/petrelfs/dongdaize.d/workspace-evaluaiton/lm-evaluation-harness-github"
 
 folder_name0="llama_pro"
-parallelize=True
+parallelize=False
 
 ##########################
 folder_name1="converted"
@@ -25,9 +25,17 @@ folder_name2="mixed-FULL"
 ##########################
 max_length=4096
 
-num_fewshot_list=(25 10 5 0 5 5)
-batch_size_list=(auto auto 32 64 auto 64)
-task_name_list=("arc_challenge" "hellaswag" "mmlu" "truthfulqa" "winogrande" "gsm8k")
+num_fewshot_list=(0 0 0 0 -1)
+batch_size_list=(auto auto auto auto auto)
+task_name_list=("mathqa" "piqa" "glue" "openbookqa" "squadv2")
+
+#num_fewshot_list=(25 5 0 5 5)
+#batch_size_list=(auto 32 64 auto 16)
+#task_name_list=("arc_challenge" "mmlu" "truthfulqa" "winogrande" "gsm8k")
+
+#num_fewshot_list=(25 10 5 0 5 5)
+#batch_size_list=(auto auto 32 64 auto 64)
+#task_name_list=("arc_challenge" "hellaswag" "mmlu" "truthfulqa" "winogrande" "gsm8k")
 
 #num_fewshot_list=(25)
 #batch_size_list=(auto)
@@ -61,9 +69,18 @@ for ((i = 0; i < ${#num_fewshot_list[@]}; i++)); do
 
   model_path="/mnt/petrelfs/dongdaize.d/workspace/depth-llama/results/finetune/${folder_name0}/${folder_name1}/${folder_name2}"
   save_path="${root_dir}/results_mod/${task_name}-${num_fewshot}shot/${folder_name0}-${folder_name1}/${folder_name2}"
-  rm ${save_path}/results.json
 
-  sbatch ${root_dir}/runs_mod/sub_tasks/${task_name}.sh ${model_path} ${save_path} ${batch_size} ${max_length} ${num_fewshot} ${parallelize} &
-  sleep 1
+  result_file="${save_path}/results*.json"
+  #  rm ${save_path}/results.json
+  if ls ${result_file} >/dev/null 2>&1; then
+    echo "Result file \"${result_file}\" already exists. Do not apply the task."
+  else
+    if [ ! -d ${model_path} ]; then
+      echo "Model path \"${model_path}\" not exists. Do not apply the task."
+    else
+      sbatch ${root_dir}/runs_mod/sub_tasks/${task_name}.sh ${model_path} ${save_path} ${batch_size} ${max_length} ${num_fewshot} ${parallelize} &
+      sleep 1
+    fi
+  fi
 done
 wait

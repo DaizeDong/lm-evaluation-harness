@@ -1,21 +1,21 @@
 #!/usr/bin/bash
 
-#SBATCH --job-name=gsm8k
-#SBATCH --output=/mnt/petrelfs/dongdaize.d/workspace-evaluaiton/lm-evaluation-harness-github/logs_mod/gsm8k/%x-%j.log
-#SBATCH --error=/mnt/petrelfs/dongdaize.d/workspace-evaluaiton/lm-evaluation-harness-github/logs_mod/gsm8k/%x-%j.log
+#SBATCH --job-name=sciq
+#SBATCH --output=/mnt/petrelfs/dongdaize.d/workspace-evaluaiton/lm-evaluation-harness-github/logs_mod/sciq/%x-%j.log
+#SBATCH --error=/mnt/petrelfs/dongdaize.d/workspace-evaluaiton/lm-evaluation-harness-github/logs_mod/sciq/%x-%j.log
 
 #SBATCH --partition=MoE
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=64
+#SBATCH --cpus-per-task=32
 #SBATCH --mem=0
 
 #SBATCH --nodes=1
-#SBATCH --gres=gpu:8
+#SBATCH --gres=gpu:2
 #SBATCH --quotatype=auto
 # reserved spot auto
 
 num_nodes=1        # should match with --nodes
-num_gpu_per_node=8 # should match with --gres
+num_gpu_per_node=2 # should match with --gres
 export OMP_NUM_THREADS=8
 export LOGLEVEL=INFO
 
@@ -80,8 +80,9 @@ mkdir -p ${save_path}
 srun lm_eval \
   --model hf \
   --model_args pretrained=${model_path},dtype="bfloat16",parallelize=${parallelize},trust_remote_code=True,use_fast_tokenizer=False,max_length=${max_length} \
-  --tasks gsm8k \
+  --tasks sciq \
   --num_fewshot ${num_fewshot} \
   --batch_size ${batch_size} \
   --output_path ${save_path}
-#  --log_samples
+
+#  --log_samples \

@@ -10,12 +10,12 @@
 #SBATCH --mem=0
 
 #SBATCH --nodes=1
-#SBATCH --gres=gpu:2
-#SBATCH --quotatype=reserved
+#SBATCH --gres=gpu:4
+#SBATCH --quotatype=auto
 # reserved spot auto
 
 num_nodes=1        # should match with --nodes
-num_gpu_per_node=2 # should match with --gres
+num_gpu_per_node=4 # should match with --gres
 export OMP_NUM_THREADS=8
 export LOGLEVEL=INFO
 

@@ -2,6 +2,10 @@ import copy
 import importlib
 import os
 import sys
+from datetime import timedelta
+from pathlib import Path
+from typing import List, Literal, Optional, Tuple, Union
+
 import torch
 import torch.nn.functional as F
 import transformers
@@ -11,14 +15,11 @@ from accelerate import (
     InitProcessGroupKwargs,
     find_executable_batch_size,
 )
-from datetime import timedelta
 from huggingface_hub import HfApi
 from packaging import version
-from pathlib import Path
 from peft import PeftModel
 from peft import __version__ as PEFT_VERSION
 from tqdm import tqdm
-from typing import List, Literal, Optional, Tuple, Union
 
 from lm_eval import utils
 from lm_eval.api.instance import Instance
@@ -42,6 +43,8 @@ from lm_eval.models_extra.llama_moe.configuration_llama_moe import LlamaMoEConfi
 from lm_eval.models_extra.llama_moe.modeling_llama_moe import LlamaMoEModel, LlamaMoEForCausalLM
 from lm_eval.models_extra.llama_moe_merged.configuration_llama_moe_merged import LlamaMoEMergedConfig
 from lm_eval.models_extra.llama_moe_merged.modeling_llama_moe_merged import LlamaMoEModelMerged, LlamaMoEForCausalLMMerged
+from lm_eval.models_extra.mistral_mod.configuration_mistral_mod_exattn import MistralMoDExAttnConfig
+from lm_eval.models_extra.mistral_mod.modeling_mistral_mod_exattn import MistralMoDExAttnForCausalLM, MistralMoDExAttnModel
 from lm_eval.models_extra.mixtral.modeling_mixtral import MixtralConfig
 from lm_eval.models_extra.mixtral.modeling_mixtral import MixtralModel, MixtralForCausalLM
 
@@ -69,6 +72,7 @@ AutoConfig.register("llama_moe", LlamaMoEConfig)
 AutoConfig.register("llama_moe_merged", LlamaMoEMergedConfig)
 AutoConfig.register("llama_mod", LlamaMoDConfig)
 AutoConfig.register("llama_mod_exattn", LlamaMoDExAttnConfig)
+AutoConfig.register("mistral_mod_exattn", MistralMoDExAttnConfig)
 AutoConfig.register("mixtral", MixtralConfig, exist_ok=True)
 AutoConfig.register("deepseek", DeepseekConfig)
 
@@ -76,6 +80,7 @@ AutoModel.register(LlamaMoEConfig, LlamaMoEModel)
 AutoModel.register(LlamaMoEMergedConfig, LlamaMoEModelMerged)
 AutoModel.register(LlamaMoDConfig, LlamaMoDModel)
 AutoModel.register(LlamaMoDExAttnConfig, LlamaMoDExAttnModel)
+AutoModel.register(MistralMoDExAttnConfig, MistralMoDExAttnModel)
 AutoModel.register(MixtralConfig, MixtralModel, exist_ok=True)
 AutoModel.register(DeepseekConfig, DeepseekModel)
 
@@ -83,6 +88,7 @@ AutoModelForCausalLM.register(LlamaMoEConfig, LlamaMoEForCausalLM)
 AutoModelForCausalLM.register(LlamaMoEMergedConfig, LlamaMoEForCausalLMMerged)
 AutoModelForCausalLM.register(LlamaMoDConfig, LlamaMoDForCausalLM)
 AutoModelForCausalLM.register(LlamaMoDExAttnConfig, LlamaMoDExAttnForCausalLM)
+AutoModelForCausalLM.register(MistralMoDExAttnConfig, MistralMoDExAttnForCausalLM)
 AutoModelForCausalLM.register(MixtralConfig, MixtralForCausalLM, exist_ok=True)
 AutoModelForCausalLM.register(DeepseekConfig, DeepseekForCausalLM)
 
