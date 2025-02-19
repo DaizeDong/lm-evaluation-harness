@@ -10,7 +10,7 @@ import os
 import re
 from dataclasses import asdict, is_dataclass
 from itertools import islice
-from typing import Any, Callable, List
+from typing import Any, Callable, Generator, List, Tuple
 
 import numpy as np
 import yaml
@@ -25,6 +25,11 @@ logging.basicConfig(
 eval_logger = logging.getLogger("lm-eval")
 
 SPACING = " " * 47
+
+HIGHER_IS_BETTER_SYMBOLS = {
+    True: "↑",
+    False: "↓",
+}
 
 
 def hash_string(string: str) -> str:
@@ -43,9 +48,9 @@ def escaped_split(text, sep_char, maxsplit=-1):
     is not specified or less than 0, then there is no limit on the
     number of splits (all possible splits are made).
     """
-    assert (
-        len(sep_char) == 1
-    ), "separation string must be a single character for escaped splitting"
+    assert len(sep_char) == 1, (
+        "separation string must be a single character for escaped splitting"
+    )
 
     if maxsplit == 0:
         return text
@@ -76,6 +81,18 @@ def handle_non_serializable(o):
         return str(o)
 
 
+def sanitize_list(sub):
+    """
+    Takes possible nested list and recursively converts all inner component to strings
+    """
+    if isinstance(sub, list):
+        return [sanitize_list(item) for item in sub]
+    if isinstance(sub, tuple):
+        return tuple(sanitize_list(item) for item in sub)
+    else:
+        return str(sub)
+
+
 def simple_parse_args_string(args_string):
     """
     Parses something like
@@ -88,7 +105,8 @@ def simple_parse_args_string(args_string):
     arg_list = [arg for arg in args_string.split(",") if arg]
     print(arg_list)
     args_dict = {
-        k: handle_arg_string(v) for k, v in [arg.split("=") for arg in arg_list]
+        kv[0]: handle_arg_string("=".join(kv[1:]))
+        for kv in [arg.split("=") for arg in arg_list]
     }
     return args_dict
 
@@ -136,7 +154,58 @@ def general_detokenize(string):
     return string
 
 
-def get_rolling_token_windows(token_list, prefix_token, max_seq_len, context_len):
+def get_file_task_name(filename: str) -> str:
+    """
+    Given the sample results filenames, extracts and returns the task name.
+    """
+    return filename[filename.find("_") + 1 : filename.rfind("_")]
+
+
+def get_file_datetime(filename: str) -> str:
+    """
+    Given the results and sample results filenames, extracts and returns the datetime.
+    """
+    return filename[filename.rfind("_") + 1 :].replace(".jsonl", "")
+
+
+def sanitize_model_name(model_name: str) -> str:
+    """
+    Given the model name, returns a sanitized version of it.
+    """
+    return re.sub(r"[\"<>:/\|\\?\*\[\]]+", "__", model_name)
+
+
+def sanitize_task_name(task_name: str) -> str:
+    """
+    Given the task name, returns a sanitized version of it.
+    """
+    return re.sub(r"\W", "_", task_name)
+
+
+def get_latest_filename(filenames: List[str]) -> str:
+    """
+    Given a list of filenames, returns the filename with the latest datetime.
+    """
+    return max(filenames, key=lambda f: get_file_datetime(f))
+
+
+def get_results_filenames(filenames: List[str]) -> List[str]:
+    """
+    Extracts filenames that correspond to aggregated results.
+    """
+    return [f for f in filenames if "/results_" in f and ".json" in f]
+
+
+def get_sample_results_filenames(filenames: List[str]) -> List[str]:
+    """
+    Extracts filenames that correspond to sample results.
+    """
+    return [f for f in filenames if "/samples_" in f and ".json" in f]
+
+
+def get_rolling_token_windows(
+    token_list: List[int], prefix_token: int, max_seq_len: int, context_len: int
+) -> Generator[Tuple[List[int], List[int]], None, None]:
     """
     - context_len allows for a rolling window context, allowing each prediction window to potentially
       condition on some context
@@ -163,7 +232,7 @@ def get_rolling_token_windows(token_list, prefix_token, max_seq_len, context_len
 
     # Special handling for first window: predict all tokens
     first_seq_len = min(max_seq_len, len(token_list))
-    yield ([prefix_token] + token_list[: first_seq_len - 1], token_list[:first_seq_len])
+    yield [prefix_token] + token_list[: first_seq_len - 1], token_list[:first_seq_len]
     predicted += first_seq_len
 
     while predicted < len(token_list):
@@ -177,7 +246,9 @@ def get_rolling_token_windows(token_list, prefix_token, max_seq_len, context_len
         predicted += window_pred_len
 
 
-def make_disjoint_window(pair):
+def make_disjoint_window(
+    pair: Tuple[List[int], List[int]],
+) -> Tuple[List[int], List[int]]:
     """Takes output from get_rolling_token_windows and makes the context not overlap with the continuation"""
     a, b = pair
     return a[: len(a) - (len(b) - 1)], b
@@ -243,7 +314,7 @@ class Reorderer:
         return res
 
 
-def make_table(result_dict, column: str = "results", sort_results: bool = True):
+def make_table(result_dict, column: str = "results", sort_results: bool = False):
     """Generate table of results."""
     from pytablewriter import LatexTableWriter, MarkdownTableWriter
 
@@ -258,6 +329,7 @@ def make_table(result_dict, column: str = "results", sort_results: bool = True):
         "Filter",
         "n-shot",
         "Metric",
+        "",
         "Value",
         "",
         "Stderr",
@@ -272,28 +344,37 @@ def make_table(result_dict, column: str = "results", sort_results: bool = True):
 
     keys = result_dict[column].keys()
     if sort_results:
-        # sort entries alphabetically
+        # sort entries alphabetically by task or group name.
+        # NOTE: we default here to false, because order matters for multi-level table printing a la mmlu.
+        # sorting here would mess that up
         keys = sorted(keys)
     for k in keys:
         dic = result_dict[column][k]
-        version = result_dict["versions"].get(k, "N/A")
-        n = str(result_dict["n-shot"][k])
+        version = result_dict["versions"].get(k, "    N/A")
+        n = str(result_dict.get("n-shot", " ").get(k, " "))
+        higher_is_better = result_dict.get("higher_is_better", {}).get(k, {})
 
         if "alias" in dic:
             k = dic.pop("alias")
 
-        for (mf), v in dic.items():
+        metric_items = dic.items()
+        metric_items = sorted(metric_items)
+
+        for (mf), v in metric_items:
             m, _, f = mf.partition(",")
             if m.endswith("_stderr"):
                 continue
 
+            hib = HIGHER_IS_BETTER_SYMBOLS.get(higher_is_better.get(m), "")
+
+            v = "%.4f" % v if isinstance(v, float) else v
+
             if m + "_stderr" + "," + f in dic:
                 se = dic[m + "_stderr" + "," + f]
-                if se != "N/A":
-                    se = "%.4f" % se
-                values.append([k, version, f, n, m, "%.4f" % v, "±", se])
+                se = "   N/A" if se == "N/A" else "%.4f" % se
+                values.append([k, version, f, n, m, hib, v, "±", se])
             else:
-                values.append([k, version, f, n, m, "%.4f" % v, "", ""])
+                values.append([k, version, f, n, m, hib, v, "", ""])
             k = ""
             version = ""
     md_writer.value_matrix = values
@@ -396,7 +477,9 @@ def regex_replace(string, pattern, repl, count: int = 0):
     return re.sub(pattern, repl, string, count=count)
 
 
-env = Environment(loader=BaseLoader, undefined=StrictUndefined)
+env = Environment(
+    loader=BaseLoader, undefined=StrictUndefined, keep_trailing_newline=True
+)
 env.filters["regex_replace"] = regex_replace
 
 
@@ -412,3 +495,13 @@ def create_iterator(raw_iterator, *, rank=0, world_size=1, limit=None):
     among ranks in multigpu setting or only pulling a sample of documents
     """
     return islice(raw_iterator, rank, limit, world_size)
+
+
+def weighted_f1_score(items):
+    from sklearn.metrics import f1_score
+
+    unzipped_list = list(zip(*items))
+    golds = unzipped_list[0]
+    preds = unzipped_list[1]
+    fscore = f1_score(golds, preds, average="weighted")
+    return fscore
