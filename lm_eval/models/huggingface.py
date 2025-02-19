@@ -1,7 +1,6 @@
 import copy
 import importlib
 import os
-import sys
 from datetime import timedelta
 from pathlib import Path
 from typing import Dict, List, Literal, Optional, Tuple, Union
@@ -51,11 +50,11 @@ from lm_eval.models_extra.mistral_mod.modeling_mistral_mod_exattn import Mistral
 from lm_eval.models_extra.mixtral.modeling_mixtral import MixtralConfig
 from lm_eval.models_extra.mixtral.modeling_mixtral import MixtralModel, MixtralForCausalLM
 
-transformers_path = "/mnt/petrelfs/dongdaize.d/workspace/compression/src"
-original_sys_path = sys.path
-sys.path = [transformers_path] + sys.path
-importlib.reload(transformers)  # 重新加载模块
-sys.path = original_sys_path
+# transformers_path = "/mnt/petrelfs/dongdaize.d/workspace/compression/src"
+# original_sys_path = sys.path
+# sys.path = [transformers_path] + sys.path
+# importlib.reload(transformers)  # 重新加载模块
+# sys.path = original_sys_path
 # print(f"huggingface transformers: {transformers}")
 
 from transformers.models.auto.modeling_auto import (

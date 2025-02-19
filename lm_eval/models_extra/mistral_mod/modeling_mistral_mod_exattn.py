@@ -1,6 +1,6 @@
 """PyTorch MistralMoDExAttn model."""
-import inspect
 import math
+import warnings
 from typing import List, Optional, Tuple, Union
 
 import torch
@@ -8,26 +8,16 @@ import torch.nn.functional as F
 import torch.utils.checkpoint
 from torch import nn
 from torch.nn import CrossEntropyLoss
-from transformers import MistralPreTrainedModel
+from transformers import PreTrainedModel
 from transformers.cache_utils import Cache, DynamicCache
-from transformers.modeling_attn_mask_utils import AttentionMaskConverter
-from transformers.modeling_outputs import (
-    CausalLMOutputWithPast,
-)
+from transformers.modeling_attn_mask_utils import _prepare_4d_causal_attention_mask, _prepare_4d_causal_attention_mask_for_sdpa
+from transformers.modeling_outputs import BaseModelOutputWithPast, CausalLMOutputWithPast
+from transformers.models.mistral.configuration_mistral import MistralConfig
 from transformers.models.mistral.modeling_mistral import MISTRAL_ATTENTION_CLASSES, MistralMLP, MistralRMSNorm
-from transformers.utils import (
-    is_flash_attn_2_available,
-    logging,
-)
+from transformers.utils import logging
 
 from .configuration_mistral_mod_exattn import MistralMoDExAttnConfig
 from ..llama_mod.modeling_llama_mod import BaseMoDModelOutputWithPast
-
-if is_flash_attn_2_available():
-    from flash_attn import flash_attn_func
-    from flash_attn.bert_padding import index_first_axis, pad_input, unpad_input  # noqa
-
-    _flash_supports_window_size = "window_size" in list(inspect.signature(flash_attn_func).parameters)
 
 logger = logging.get_logger(__name__)
 
@@ -37,11 +27,13 @@ _CONFIG_FOR_DOC = "MistralMoDExAttnConfig"
 class MistralMoDExAttnDecoderLayer(nn.Module):
     def __init__(self, config: MistralMoDExAttnConfig, layer_idx: int):
         super().__init__()
+        self.config = config
         self.hidden_size = config.hidden_size
 
-        self.self_attn = MISTRAL_ATTENTION_CLASSES[config._attn_implementation](config=config, layer_idx=layer_idx)
+        self.self_attn = MISTRAL_ATTENTION_CLASSES[config._attn_implementation](config, layer_idx)
 
         self.mlp = MistralMLP(config)
+
         self.input_layernorm = MistralRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.post_attention_layernorm = MistralRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
 
@@ -49,35 +41,24 @@ class MistralMoDExAttnDecoderLayer(nn.Module):
         self.scale_factor = config.scale_factor  # 🔍 scale the central value of sigmoid score
         self.scale_gap = config.scale_gap  # 🔍 scale the range between the maximum & minimum values of sigmoid scores
         # Final scores: 0.5 * scale_factor + (sigmoid(x) - 0.5) * scale_gap
-        self.mod_loss_type = config.mod_loss_type  # 🙀 for ExAttn only
 
     def forward(
             self,
             hidden_states: torch.Tensor,
             attention_mask: Optional[torch.Tensor] = None,
             position_ids: Optional[torch.LongTensor] = None,
-            past_key_value: Optional[Cache] = None,
+            past_key_value: Optional[Tuple[torch.Tensor]] = None,
             output_attentions: Optional[bool] = False,
             use_cache: Optional[bool] = False,
-            cache_position: Optional[torch.LongTensor] = None,
             topk_mask: Optional[torch.BoolTensor] = None,  # 🔍
             topk_scores: Optional[torch.Tensor] = None,  # 🔍
             calculate_similarity: Optional[bool] = False,  # 🔍
+            **kwargs,
     ) -> Tuple[torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]]:
-        """
-        Args:
-            hidden_states (`torch.FloatTensor`): input to the layer of shape `(batch, seq_len, embed_dim)`
-            attention_mask (`torch.FloatTensor`, *optional*):
-                attention mask of size `(batch_size, sequence_length)` if flash attention is used or `(batch_size, 1,
-                query_sequence_length, key_sequence_length)` if default attention is used.
-            output_attentions (`bool`, *optional*):
-                Whether or not to return the attentions tensors of all attention layers. See `attentions` under
-                returned tensors for more detail.
-            use_cache (`bool`, *optional*):
-                If set to `True`, `past_key_values` key value states are returned and can be used to speed up decoding
-                (see `past_key_values`).
-            past_key_value (`Tuple(torch.FloatTensor)`, *optional*): cached past key and value projection states
-        """
+        if "padding_mask" in kwargs:
+            warnings.warn(
+                "Passing `padding_mask` is deprecated and will be removed in v4.37. Please make sure use `attention_mask` instead.`"
+            )
 
         residual = hidden_states
 
@@ -91,7 +72,6 @@ class MistralMoDExAttnDecoderLayer(nn.Module):
             past_key_value=past_key_value,
             output_attentions=output_attentions,
             use_cache=use_cache,
-            cache_position=cache_position,
         )
         hidden_states = residual + hidden_states
 
@@ -111,6 +91,7 @@ class MistralMoDExAttnDecoderLayer(nn.Module):
         else:
             residual = hidden_states
             topk_hidden_states = torch.zeros_like(hidden_states)
+
             hidden_states = hidden_states[topk_mask]
 
             if hidden_states.shape[0] > 0:
@@ -124,20 +105,16 @@ class MistralMoDExAttnDecoderLayer(nn.Module):
                     topk_hidden_states[topk_mask] = hidden_states
 
                 hidden_states = residual + topk_hidden_states
+
             else:  # no token is selected for the froward process
                 hidden_states = residual
 
-            if calculate_similarity:  # 🙀 for ExAttn only
+            if calculate_similarity:
                 with torch.no_grad():
                     transformed_hidden_states = self.post_attention_layernorm(residual)
                     transformed_hidden_states = self.mlp(transformed_hidden_states)
                     transformed_hidden_states = residual + transformed_hidden_states
                     similarities = F.cosine_similarity(residual.float(), transformed_hidden_states.float(), dim=-1)  # (batch_size, seq_len)
-                    # similarities = F.cosine_similarity(residual, transformed_hidden_states, dim=-1)  # (batch_size, seq_len)
-                    # if len(similarities.shape) != 2:
-                    #     print("residual", residual.shape, residual.device, residual)
-                    #     print("transformed_hidden_states", transformed_hidden_states.shape, transformed_hidden_states.device, transformed_hidden_states)
-                    #     print("similarities", similarities.shape, similarities.device, similarities)
             else:
                 similarities = None
 
@@ -149,10 +126,31 @@ class MistralMoDExAttnDecoderLayer(nn.Module):
         if use_cache:
             outputs += (present_key_value,)
 
-        # 🙀 for ExAttn only
         outputs += (similarities,)
 
         return outputs
+
+
+class MistralPreTrainedModel(PreTrainedModel):
+    config_class = MistralConfig
+    base_model_prefix = "model"
+    supports_gradient_checkpointing = True
+    _no_split_modules = ["MistralDecoderLayer"]
+    _skip_keys_device_placement = "past_key_values"
+    _supports_flash_attn_2 = True
+    _supports_sdpa = True
+    _supports_cache_class = True
+
+    def _init_weights(self, module):
+        std = self.config.initializer_range
+        if isinstance(module, nn.Linear):
+            module.weight.data.normal_(mean=0.0, std=std)
+            if module.bias is not None:
+                module.bias.data.zero_()
+        elif isinstance(module, nn.Embedding):
+            module.weight.data.normal_(mean=0.0, std=std)
+            if module.padding_idx is not None:
+                module.weight.data[module.padding_idx].zero_()
 
 
 class MistralMoDExAttnPreTrainedModel(MistralPreTrainedModel):
@@ -214,9 +212,10 @@ class MistralMoDExAttnModel(MistralMoDExAttnPreTrainedModel):
         self.init_weights()
         self._backward_compatibility_gradient_checkpointing()
         # 🔍 zeros init for routers
-        for layer_idx in range(self.config.num_hidden_layers):
-            if self.config.is_mod[layer_idx]:
-                self.routers[layer_idx].weight.data.zero_()
+        if hasattr(self.config, "gate_init_method") and self.config.gate_init_method == "zero":
+            for layer_idx in range(self.config.num_hidden_layers):
+                if self.config.is_mod[layer_idx]:
+                    self.routers[layer_idx].weight.data.zero_()
 
     def get_input_embeddings(self):
         return self.embed_tokens
@@ -233,54 +232,83 @@ class MistralMoDExAttnModel(MistralMoDExAttnPreTrainedModel):
             input_ids: torch.LongTensor = None,
             attention_mask: Optional[torch.Tensor] = None,
             position_ids: Optional[torch.LongTensor] = None,
-            past_key_values: Optional[Union[Cache, List[torch.FloatTensor]]] = None,
+            past_key_values: Optional[List[torch.FloatTensor]] = None,
             inputs_embeds: Optional[torch.FloatTensor] = None,
             use_cache: Optional[bool] = None,
             output_attentions: Optional[bool] = None,
             output_hidden_states: Optional[bool] = None,
             return_dict: Optional[bool] = None,
-            cache_position: Optional[torch.LongTensor] = None,
-    ) -> BaseMoDModelOutputWithPast:
+    ) -> Union[Tuple, BaseModelOutputWithPast]:
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
-        output_hidden_states = (
-            output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
-        )
+        output_hidden_states = output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
         use_cache = use_cache if use_cache is not None else self.config.use_cache
-
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
         # retrieve input_ids and inputs_embeds
-        if (input_ids is None) ^ (inputs_embeds is not None):
-            raise ValueError(
-                "You cannot specify both input_ids and inputs_embeds at the same time, and must specify either one"
-            )
+        if input_ids is not None and inputs_embeds is not None:
+            raise ValueError("You cannot specify both decoder_input_ids and decoder_inputs_embeds at the same time")
+        elif input_ids is not None:
+            batch_size, seq_length = input_ids.shape
+        elif inputs_embeds is not None:
+            batch_size, seq_length, _ = inputs_embeds.shape
+        else:
+            raise ValueError("You have to specify either decoder_input_ids or decoder_inputs_embeds")
 
-        if self.gradient_checkpointing and self.training and use_cache:
-            logger.warning_once(
-                "`use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`..."
-            )
+        if self.gradient_checkpointing and self.training:
+            logger.warning_once("`use_cache=True` is incompatible with gradient checkpointing. Setting `use_cache=False`...")
             use_cache = False
+
+        past_key_values_length = 0
+
+        if use_cache:
+            use_legacy_cache = not isinstance(past_key_values, Cache)
+            if use_legacy_cache:
+                past_key_values = DynamicCache.from_legacy_cache(past_key_values)
+            past_key_values_length = past_key_values.get_usable_length(seq_length)
+
+        if position_ids is None:
+            device = input_ids.device if input_ids is not None else inputs_embeds.device
+            position_ids = torch.arange(
+                past_key_values_length, seq_length + past_key_values_length, dtype=torch.long, device=device
+            )
+            position_ids = position_ids.unsqueeze(0).view(-1, seq_length)
+        else:
+            position_ids = position_ids.view(-1, seq_length).long()
 
         if inputs_embeds is None:
             inputs_embeds = self.embed_tokens(input_ids)
 
-        return_legacy_cache = False
-        if use_cache and not isinstance(past_key_values, Cache):
-            past_key_values = DynamicCache.from_legacy_cache(past_key_values)
-            return_legacy_cache = True
+        if attention_mask is not None and self._attn_implementation == "flash_attention_2" and use_cache:
+            is_padding_right = attention_mask[:, -1].sum().item() != batch_size
+            if is_padding_right:
+                raise ValueError(
+                    "You are attempting to perform batched generation with padding_side='right'"
+                    " this may lead to unexpected behaviour for Flash Attention version of Mistral. Make sure to "
+                    " call `tokenizer.padding_side  = 'left'` before tokenizing the input. "
+                )
 
-        if cache_position is None:
-            past_seen_tokens = past_key_values.get_seq_length() if past_key_values is not None else 0
-            cache_position = torch.arange(
-                past_seen_tokens, past_seen_tokens + inputs_embeds.shape[1], device=inputs_embeds.device
+        if self._attn_implementation == "flash_attention_2":
+            # 2d mask is passed through the layers
+            attention_mask = attention_mask if (attention_mask is not None and 0 in attention_mask) else None
+        elif self._attn_implementation == "sdpa" and not output_attentions:
+            # output_attentions=True can not be supported when using SDPA, and we fall back on
+            # the manual implementation that requires a 4D causal mask in all cases.
+            attention_mask = _prepare_4d_causal_attention_mask_for_sdpa(
+                attention_mask,
+                (batch_size, seq_length),
+                inputs_embeds,
+                past_key_values_length,
+                sliding_window=self.config.sliding_window,
             )
-
-        if position_ids is None:
-            position_ids = cache_position.unsqueeze(0)
-
-        causal_mask = self._update_causal_mask(
-            attention_mask, inputs_embeds, cache_position, past_key_values, use_cache, output_attentions
-        )
+        else:
+            # 4d mask is passed through the layers
+            attention_mask = _prepare_4d_causal_attention_mask(
+                attention_mask,
+                (batch_size, seq_length),
+                inputs_embeds,
+                past_key_values_length,
+                sliding_window=self.config.sliding_window,
+            )
 
         hidden_states = inputs_embeds
 
@@ -304,9 +332,10 @@ class MistralMoDExAttnModel(MistralMoDExAttnPreTrainedModel):
                 logits = self.routers[layer_index](hidden_states).squeeze(-1)  # (batch_size, seq_len)
                 sigmoid_logits = self.sigmoid(logits)  # (batch_size, seq_len)
 
-                # print(batch_size, seq_len, hidden_size)
-                # print("logits", logits.shape, logits.dtype, logits)
-                # print("sigmoid_logits", sigmoid_logits.shape, sigmoid_logits.dtype, sigmoid_logits)
+                # if layer_index == 0:
+                #     print(batch_size, seq_len, hidden_size)
+                #     print("logits", logits.shape, logits.dtype, logits)
+                #     print("sigmoid_logits", sigmoid_logits.shape, sigmoid_logits.dtype, sigmoid_logits)
 
                 if self.training or self.eval_use_topk:
                     """[Pretraining | Finetuning] Use the batch-wise TopK to select tokens."""
@@ -341,23 +370,22 @@ class MistralMoDExAttnModel(MistralMoDExAttnPreTrainedModel):
                             threshold = topk_non_padding_sigmoid_logits[-1]
                             topk_mask = attention_mask & (sigmoid_logits >= threshold)  # (batch_size, seq_len)
                             topk_scores = sigmoid_logits[topk_mask]  # (topk_num)
+
+                        # if layer_index == 0:
+                        #     print("threshold", threshold)
+
                     else:
                         topk_mask = torch.zeros((batch_size, seq_len), device=hidden_states.device, dtype=torch.bool)
                         topk_scores = torch.zeros((batch_size, seq_len), device=hidden_states.device, dtype=sigmoid_logits.dtype)
-                        # print(f"layer {layer_index}, num_tokens_selected = {num_tokens_selected}, mod_capacity = {this_layer_mod_capacity}")
 
-                    # print("num_tokens_selected", num_tokens_selected)
-                    # print("threshold", threshold)
+                    # if layer_index == 0:
+                    #     print(f"layer {layer_index}, num_tokens_selected = {num_tokens_selected}, mod_capacity = {this_layer_mod_capacity}")
 
                 else:
                     """[Evaluation] Use the binary-classification to select tokens."""
                     # use router logits to select the tokens
-                    topk_mask = (sigmoid_logits > 0.5)  # (batch_size, seq_len)
+                    topk_mask = (sigmoid_logits >= 0.5)  # (batch_size, seq_len)
                     topk_scores = sigmoid_logits[topk_mask]  # (topk_num)
-
-                # print("topk_mask", topk_mask.shape, topk_mask.dtype, topk_mask)
-                # print("topk_scores", topk_scores.shape, topk_scores.dtype, topk_scores)
-                # print("calculate_similarity", calculate_similarity)
 
                 # check if calculate the similarities of hidden features
                 if self.training and self.mod_loss_type in ("cos", "cos-global"):
@@ -365,27 +393,21 @@ class MistralMoDExAttnModel(MistralMoDExAttnPreTrainedModel):
                 else:
                     calculate_similarity = False
 
-                """🔍 MoD Loss"""
-                mod_loss = None
-
-                if self.training:
-                    if self.mod_loss_type == "self":
-                        labels = topk_mask.clone().to(sigmoid_logits.dtype)
-                        mod_loss = self.bce_loss(sigmoid_logits, labels)
-                else:
-                    mod_loss = torch.tensor(0., device=hidden_states.device, dtype=hidden_states.dtype)
+                # if layer_index == 0:
+                #     print("topk_mask", topk_mask.shape, topk_mask.dtype, topk_mask)
+                #     print("topk_scores", topk_scores.shape, topk_scores.dtype, topk_scores)
+                #     print("calculate_similarity", calculate_similarity)
 
                 """Normal Forward Process"""
                 if self.gradient_checkpointing and self.training:
                     layer_outputs = self._gradient_checkpointing_func(
                         decoder_layer.__call__,
                         hidden_states,
-                        causal_mask,
+                        attention_mask,
                         position_ids,
                         past_key_values,
                         output_attentions,
                         use_cache,
-                        cache_position,
                         topk_mask,  # 🔍
                         topk_scores,  # 🔍
                         calculate_similarity,  # 🔍
@@ -393,12 +415,11 @@ class MistralMoDExAttnModel(MistralMoDExAttnPreTrainedModel):
                 else:
                     layer_outputs = decoder_layer(
                         hidden_states,
-                        attention_mask=causal_mask,
+                        attention_mask=attention_mask,
                         position_ids=position_ids,
                         past_key_value=past_key_values,
                         output_attentions=output_attentions,
                         use_cache=use_cache,
-                        cache_position=cache_position,
                         topk_mask=topk_mask,  # 🔍
                         topk_scores=topk_scores,  # 🔍
                         calculate_similarity=calculate_similarity,  # 🔍
@@ -408,8 +429,13 @@ class MistralMoDExAttnModel(MistralMoDExAttnPreTrainedModel):
                 similarities = layer_outputs[-1]
 
                 """🔍 MoD Loss"""
+                mod_loss = None
+
                 if self.training:
-                    if self.mod_loss_type == "cos":
+                    if self.mod_loss_type == "self":
+                        labels = topk_mask.clone().to(sigmoid_logits.dtype)
+                        mod_loss = self.bce_loss(sigmoid_logits, labels)
+                    elif self.mod_loss_type == "cos":
                         with torch.no_grad():
                             if attention_mask is None:
                                 topk_similarities, _ = similarities.flatten().topk(num_tokens_selected, dim=0, largest=False)
@@ -428,6 +454,8 @@ class MistralMoDExAttnModel(MistralMoDExAttnPreTrainedModel):
                         sigmoid_logits_cache.append(sigmoid_logits)
                         similarities_cache.append(similarities)
                         mod_loss = torch.tensor(0., device=hidden_states.device, dtype=hidden_states.dtype)
+                else:
+                    mod_loss = torch.tensor(0., device=hidden_states.device, dtype=hidden_states.dtype)
 
                 if mod_loss is None:
                     raise ValueError("mod_loss")
@@ -441,22 +469,21 @@ class MistralMoDExAttnModel(MistralMoDExAttnPreTrainedModel):
                     layer_outputs = self._gradient_checkpointing_func(
                         decoder_layer.__call__,
                         hidden_states,
-                        causal_mask,
+                        attention_mask,
                         position_ids,
                         past_key_values,
                         output_attentions,
                         use_cache,
-                        cache_position,
                     )
                 else:
                     layer_outputs = decoder_layer(
                         hidden_states,
-                        attention_mask=causal_mask,
+                        attention_mask=attention_mask,
                         position_ids=position_ids,
                         past_key_value=past_key_values,
                         output_attentions=output_attentions,
                         use_cache=use_cache,
-                        cache_position=cache_position,
+                        layer_index=layer_index,
                     )
 
                 hidden_states = layer_outputs[0]
@@ -466,6 +493,8 @@ class MistralMoDExAttnModel(MistralMoDExAttnPreTrainedModel):
 
             if output_attentions:
                 all_self_attns += (layer_outputs[1],)
+
+        hidden_states = self.norm(hidden_states)
 
         # 🔍 Post calculation of MoD loss for the "cos-global" setting
         if self.training and self.mod_loss_type == "cos-global":  # 🔍
@@ -513,24 +542,20 @@ class MistralMoDExAttnModel(MistralMoDExAttnPreTrainedModel):
 
             # print("padded_capacities", capacities)
 
-            # print(padded_capacities)
             self.set_mod_capacity(padded_capacities)  # update the layer-wise capacity
 
             # print("self.mod_capacity", self.mod_capacity)
-
-        hidden_states = self.norm(hidden_states)
 
         # add hidden states from the last decoder layer
         if output_hidden_states:
             all_hidden_states += (hidden_states,)
 
-        next_cache = next_decoder_cache if use_cache else None
-        if return_legacy_cache:
-            next_cache = next_cache.to_legacy_cache()
+        next_cache = None
+        if use_cache:
+            next_cache = next_decoder_cache.to_legacy_cache() if use_legacy_cache else next_decoder_cache
 
         if not return_dict:
             return tuple(v for v in [hidden_states, next_cache, all_hidden_states, all_self_attns] if v is not None)
-
         return BaseMoDModelOutputWithPast(
             last_hidden_state=hidden_states,
             past_key_values=next_cache,
@@ -539,84 +564,11 @@ class MistralMoDExAttnModel(MistralMoDExAttnPreTrainedModel):
             mod_losses=mod_losses,  # 🔍
         )
 
-    def _update_causal_mask(
-            self,
-            attention_mask: torch.Tensor,
-            input_tensor: torch.Tensor,
-            cache_position: torch.Tensor,
-            past_seen_tokens: int,
-    ):
-        # TODO: As of torch==2.2.0, the `attention_mask` passed to the model in `generate` is 2D and of dynamic length even when the static
-        # KV cache is used. This is an issue for torch.compile which then recaptures cudagraphs at each decode steps due to the dynamic shapes.
-        # (`recording cudagraph tree for symint key 13`, etc.), which is VERY slow. A workaround is `@torch.compiler.disable`, but this prevents using
-        # `fullgraph=True`. See more context in https://github.com/huggingface/transformers/pull/29114
-
-        if self.config._attn_implementation == "flash_attention_2":
-            if attention_mask is not None and 0.0 in attention_mask:
-                return attention_mask
-            return None
-
-        if self.config._attn_implementation == "sdpa":
-            # For SDPA, when possible, we will rely on its `is_causal` argument instead of its `attn_mask` argument,
-            # in order to dispatch on Flash Attention 2.
-            if AttentionMaskConverter._ignore_causal_mask_sdpa(
-                    attention_mask, inputs_embeds=input_tensor, past_key_values_length=past_seen_tokens
-            ):
-                return None
-
-        dtype, device = input_tensor.dtype, input_tensor.device
-        min_dtype = torch.finfo(dtype).min
-        sequence_length = input_tensor.shape[1]
-        if hasattr(getattr(self.layers[0], "self_attn", {}), "past_key_value"):  # static cache
-            target_length = self.config.max_position_embeddings
-        else:  # dynamic cache
-            target_length = (
-                attention_mask.shape[-1]
-                if isinstance(attention_mask, torch.Tensor)
-                else past_seen_tokens + sequence_length + 1
-            )
-
-        causal_mask = torch.full((sequence_length, target_length), fill_value=min_dtype, dtype=dtype, device=device)
-        if sequence_length != 1:
-            causal_mask = torch.triu(causal_mask, diagonal=1)
-        causal_mask *= torch.arange(target_length, device=device) > cache_position.reshape(-1, 1)
-        causal_mask = causal_mask[None, None, :, :].expand(input_tensor.shape[0], 1, -1, -1)
-        if attention_mask is not None:
-            causal_mask = causal_mask.clone()  # copy to contiguous memory for in-place edit
-            if attention_mask.dim() == 2:
-                mask_length = attention_mask.shape[-1]
-                padding_mask = causal_mask[..., :mask_length].eq(0.0) * attention_mask[:, None, None, :].eq(0.0)
-                causal_mask[..., :mask_length] = causal_mask[..., :mask_length].masked_fill(padding_mask, min_dtype)
-            elif attention_mask.dim() == 4:
-                # backwards compatibility: we allow passing a 4D attention mask shorter than the input length with
-                # cache. In that case, the 4D attention mask attends to the newest tokens only.
-                if attention_mask.shape[-2] < cache_position[0] + sequence_length:
-                    offset = cache_position[0]
-                else:
-                    offset = 0
-                mask_shape = attention_mask.shape
-                mask_slice = (attention_mask.eq(0.0)).to(dtype=dtype) * min_dtype
-                causal_mask[
-                : mask_shape[0], : mask_shape[1], offset: mask_shape[2] + offset, : mask_shape[3]
-                ] = mask_slice
-
-        if (
-                self.config._attn_implementation == "sdpa"
-                and attention_mask is not None
-                and attention_mask.device.type == "cuda"
-        ):
-            # Attend to all tokens in fully masked rows in the causal_mask, for example the relevant first rows when
-            # using left padding. This is required by F.scaled_dot_product_attention memory-efficient attention path.
-            # Details: https://github.com/pytorch/pytorch/issues/110213
-            causal_mask = AttentionMaskConverter._unmask_unattended(causal_mask, min_dtype)
-
-        return causal_mask
-
 
 class MistralMoDExAttnForCausalLM(MistralMoDExAttnPreTrainedModel):
     _tied_weights_keys = ["lm_head.weight"]
 
-    def __init__(self, config):
+    def __init__(self, config: MistralMoDExAttnConfig):
         super().__init__(config)
         self.model = MistralMoDExAttnModel(config)
         self.vocab_size = config.vocab_size
@@ -654,14 +606,13 @@ class MistralMoDExAttnForCausalLM(MistralMoDExAttnPreTrainedModel):
             input_ids: torch.LongTensor = None,
             attention_mask: Optional[torch.Tensor] = None,
             position_ids: Optional[torch.LongTensor] = None,
-            past_key_values: Optional[Union[Cache, List[torch.FloatTensor]]] = None,
+            past_key_values: Optional[List[torch.FloatTensor]] = None,
             inputs_embeds: Optional[torch.FloatTensor] = None,
             labels: Optional[torch.LongTensor] = None,
             use_cache: Optional[bool] = None,
             output_attentions: Optional[bool] = None,
             output_hidden_states: Optional[bool] = None,
             return_dict: Optional[bool] = None,
-            cache_position: Optional[torch.LongTensor] = None,
     ) -> Union[Tuple, CausalLMOutputWithPast]:
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
         output_hidden_states = (
@@ -680,7 +631,6 @@ class MistralMoDExAttnForCausalLM(MistralMoDExAttnPreTrainedModel):
             output_attentions=output_attentions,
             output_hidden_states=output_hidden_states,
             return_dict=return_dict,
-            cache_position=cache_position,
         )
 
         hidden_states = outputs[0]
@@ -714,33 +664,14 @@ class MistralMoDExAttnForCausalLM(MistralMoDExAttnPreTrainedModel):
         )
 
     def prepare_inputs_for_generation(
-            self,
-            input_ids,
-            past_key_values=None,
-            attention_mask=None,
-            inputs_embeds=None,
-            cache_position=None,
-            use_cache=True,
-            **kwargs,
+            self, input_ids, past_key_values=None, attention_mask=None, inputs_embeds=None, **kwargs
     ):
-        # With static cache, the `past_key_values` is None
-        # TODO joao: standardize interface for the different Cache classes and remove of this if
-        has_static_cache = False
-        if past_key_values is None:
-            past_key_values = getattr(getattr(self.model.layers[0], "self_attn", {}), "past_key_value", None)
-            has_static_cache = past_key_values is not None
-
-        past_length = 0
+        # Omit tokens covered by past_key_values
         if past_key_values is not None:
             if isinstance(past_key_values, Cache):
-                past_length = cache_position[0] if cache_position is not None else past_key_values.get_seq_length()
-                max_cache_length = (
-                    torch.tensor(past_key_values.get_max_length(), device=input_ids.device)
-                    if past_key_values.get_max_length() is not None
-                    else None
-                )
-                cache_length = past_length if max_cache_length is None else torch.min(max_cache_length, past_length)
-            # TODO joao: remove this `else` after `generate` prioritizes `Cache` objects
+                cache_length = past_key_values.get_seq_length()
+                past_length = past_key_values.seen_tokens
+                max_cache_length = past_key_values.get_max_length()
             else:
                 cache_length = past_length = past_key_values[0][0].shape[2]
                 max_cache_length = None
@@ -777,26 +708,13 @@ class MistralMoDExAttnForCausalLM(MistralMoDExAttnPreTrainedModel):
         if inputs_embeds is not None and past_key_values is None:
             model_inputs = {"inputs_embeds": inputs_embeds}
         else:
-            # The `contiguous()` here is necessary to have a static stride during decoding. torchdynamo otherwise
-            # recompiles graphs as the stride of the inputs is a guard. Ref: https://github.com/huggingface/transformers/pull/29114
-            # TODO: use `next_tokens` directly instead.
-            model_inputs = {"input_ids": input_ids.contiguous()}
-
-        input_length = position_ids.shape[-1] if position_ids is not None else input_ids.shape[-1]
-        if cache_position is None:
-            cache_position = torch.arange(past_length, past_length + input_length, device=input_ids.device)
-        elif use_cache:
-            cache_position = cache_position[-input_length:]
-
-        if has_static_cache:
-            past_key_values = None
+            model_inputs = {"input_ids": input_ids}
 
         model_inputs.update(
             {
                 "position_ids": position_ids,
-                "cache_position": cache_position,
                 "past_key_values": past_key_values,
-                "use_cache": use_cache,
+                "use_cache": kwargs.get("use_cache"),
                 "attention_mask": attention_mask,
             }
         )

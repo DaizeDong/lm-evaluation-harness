@@ -9,18 +9,35 @@ folder_name1="paper"
 
 ####################################################
 #folder_name2="main_results/baseline-mistral"
+#folder_name2="main_results/mistral-mod-interleave-zeros32-freq1-Scale2.0-Gap0.05-freq1-cap0.9-cos-global1.0-Anneal1000-DyLr"
+#folder_name2="main_results/mistral-mod-interleave-zeros32-freq1-Scale2.0-Gap0.05-freq1-cap0.8-cos-global1.0-Anneal1000-DyLr"
+
 #folder_name2="main_results/baseline-mistral-pro"
 
-#folder_name2="main_results/baseline-mistral-1e-5"
-#folder_name2="main_results/baseline-mistral-2e-5"
-folder_name2="main_results/baseline-mistral-3e-5"
+#folder_name2="main_results/mistral-mod-interleave-zeros40-freq1-Scale2.0-Gap0.05-freq1-cap0.9-cos-global1.0-Anneal1000-DyLr"
+#folder_name2="main_results/mistral-mod-interleave-zeros40-freq1-Scale2.0-Gap0.05-freq1-cap0.8-cos-global1.0-Anneal1000-DyLr"
+
+####################################################
+#folder_name2="alpaca/baseline-mistral"
+#folder_name2="alpaca/mistral-mod-interleave-zeros32-freq1-Scale2.0-Gap0.05-freq1-cap0.9-cos-global1.0-Anneal1000-DyLr"
+#folder_name2="alpaca/mistral-mod-interleave-zeros32-freq1-Scale2.0-Gap0.05-freq1-cap0.8-cos-global1.0-Anneal1000-DyLr"
+
+#folder_name2="alpaca/baseline-mistral-pro"
+
+folder_name2="alpaca/mistral-mod-interleave-zeros40-freq1-Scale2.0-Gap0.05-freq1-cap0.9-cos-global1.0-Anneal1000-DyLr"
+#folder_name2="alpaca/mistral-mod-interleave-zeros40-freq1-Scale2.0-Gap0.05-freq1-cap0.8-cos-global1.0-Anneal1000-DyLr"
+
 ####################################################
 
 max_length=4096
 
-num_fewshot_list=(0 0 0 0 -1 25 5 0 5 5)
-batch_size_list=(auto auto auto auto auto auto 32 64 auto 16)
-task_name_list=("mathqa" "piqa" "glue" "openbookqa" "squadv2" "arc_challenge" "mmlu" "truthfulqa" "winogrande" "gsm8k")
+#num_fewshot_list=(0 0 0 0 -1 25 5 0 5 5)
+#batch_size_list=(auto auto auto auto auto auto 32 64 auto 16)
+#task_name_list=("mathqa" "piqa" "glue" "openbookqa" "squadv2" "arc_challenge" "mmlu" "truthfulqa" "winogrande" "gsm8k")
+
+num_fewshot_list=(0 0 0 0 25 0 5)
+batch_size_list=(auto auto auto auto auto 64 auto)
+task_name_list=("mathqa" "piqa" "glue" "openbookqa" "arc_challenge" "truthfulqa" "winogrande")
 
 for ((i = 0; i < ${#num_fewshot_list[@]}; i++)); do
   batch_size=${batch_size_list[i]}

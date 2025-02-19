@@ -32,7 +32,8 @@ folder_name1="paper"
 #folder_name2="main_results/llama-mod-interleave-zeros40-freq1-Scale1.0-Gap1.0-freq1-cap0.9-cos-global1.0-Anneal1000-DyLr"
 #folder_name2="main_results/llama-mod-interleave-zeros40-randomG-freq1-Scale2.0-Gap0.05-freq1-cap0.9-cos-global1.0-Anneal1000-DyLr"
 
-folder_name2="main_results_rerun/llama-mod-interleave-zeros40-zeroG-freq1-Scale2.0-Gap0.05-freq1-cap0.9-cos-global1.0-Anneal1000-DyLr"
+folder_name2="main_results_rerun/llama-mod-interleave-zeros40-zeroG-freq1-Scale2.0-Gap0.05-freq1-cap0.95-cos-global1.0-Anneal1000-DyLr"
+#folder_name2="main_results_rerun/llama-mod-interleave-zeros40-zeroG-freq1-Scale2.0-Gap0.05-freq1-cap0.9-cos-global1.0-Anneal1000-DyLr"
 ####################################################
 
 max_length=4096

@@ -1,13 +1,13 @@
-"""MistralMoDExAttn model configuration"""
+"""MistralMoDExattn model configuration"""
 from typing import Union
 
-from transformers import MistralConfig
+from transformers import PretrainedConfig, MistralConfig
 from transformers.utils import logging
 
 logger = logging.get_logger(__name__)
 
 
-class MistralMoDExAttnConfig(MistralConfig):
+class MistralMoDExAttnConfig(PretrainedConfig):
     model_type = "mistral_mod_exattn"
     keys_to_ignore_at_inference = ["past_key_values"]
 
@@ -22,7 +22,7 @@ class MistralMoDExAttnConfig(MistralConfig):
             hidden_act="silu",
             max_position_embeddings=4096 * 32,
             initializer_range=0.02,
-            rms_norm_eps=1e-6,
+            rms_norm_eps=1e-5,
             use_cache=True,
             pad_token_id=None,
             bos_token_id=1,
@@ -40,6 +40,7 @@ class MistralMoDExAttnConfig(MistralConfig):
             scale_factor: float = 1.0,
             scale_gap: float = 1.0,
             eval_use_topk: bool = False,
+            gate_init_method: str = "zero",  # zero random
             **kwargs,
     ):
         self.vocab_size = vocab_size
@@ -71,6 +72,7 @@ class MistralMoDExAttnConfig(MistralConfig):
         self.scale_factor = scale_factor
         self.scale_gap = scale_gap
         self.eval_use_topk = eval_use_topk
+        self.gate_init_method = gate_init_method
 
         super().__init__(
             pad_token_id=pad_token_id,
@@ -91,6 +93,7 @@ class MistralMoDExAttnConfig(MistralConfig):
             scale_factor: float = 1.0,
             scale_gap: float = 1.0,
             eval_use_topk: bool = False,
+            gate_init_method: str = "zero",
     ):
         return MistralMoDExAttnConfig(
             vocab_size=config.vocab_size,
@@ -119,4 +122,5 @@ class MistralMoDExAttnConfig(MistralConfig):
             scale_factor=scale_factor,
             scale_gap=scale_gap,
             eval_use_topk=eval_use_topk,
+            gate_init_method=gate_init_method,
         )
