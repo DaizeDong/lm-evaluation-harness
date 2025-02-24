@@ -1,3 +1,5 @@
+import warnings
+
 import itertools
 import json
 import logging
@@ -37,6 +39,15 @@ from lm_eval.utils import (
     simple_parse_args_string,
 )
 
+try:
+    from vllm.analysis_utils.analysis_cache import save_analysis_cache
+
+    print("Analysis module loaded successfully.")
+    ANALYSIS_MODULE_LOADED = True
+
+except Exception as e:
+    warnings.warn(f"Failed to load analysis module: {e}")
+    ANALYSIS_MODULE_LOADED = False
 
 if TYPE_CHECKING:
     from lm_eval.api.model import LM
@@ -536,6 +547,13 @@ def evaluate(
 
     RANK = lm.rank
     WORLD_SIZE = lm.world_size
+
+    if ANALYSIS_MODULE_LOADED:
+        # This WORLD_SIZE is always 1
+        # CACHE WILL BE EMPTY IF DP>1
+        print("WORLD_SIZE", WORLD_SIZE)
+        save_analysis_cache()
+
     ### Postprocess outputs ###
     # TODO: del model here, maybe (idea: allow user to specify device of e.g. reward model separately)
     for task_output, limit in zip(eval_tasks, limits):
