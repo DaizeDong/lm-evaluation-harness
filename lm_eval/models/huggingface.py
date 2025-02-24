@@ -1,4 +1,5 @@
 import copy
+import logging
 import importlib
 import os
 from datetime import timedelta
@@ -62,7 +63,7 @@ from transformers.models.auto.modeling_auto import (
     MODEL_FOR_SEQ_TO_SEQ_CAUSAL_LM_MAPPING_NAMES,
 )
 
-eval_logger = utils.eval_logger
+eval_logger = logging.getLogger(__name__)
 
 # 🔍🔍🔍
 from transformers import AutoConfig, AutoModel, AutoModelForCausalLM
