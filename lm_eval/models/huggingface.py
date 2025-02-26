@@ -1,5 +1,6 @@
 import copy
 import logging
+import importlib
 import os
 from datetime import timedelta
 from pathlib import Path
@@ -20,10 +21,6 @@ from packaging import version
 from peft import PeftModel
 from peft import __version__ as PEFT_VERSION
 from tqdm import tqdm
-from transformers.models.auto.modeling_auto import (
-    MODEL_FOR_CAUSAL_LM_MAPPING_NAMES,
-    MODEL_FOR_SEQ_TO_SEQ_CAUSAL_LM_MAPPING_NAMES,
-)
 
 from lm_eval import utils
 from lm_eval.api.instance import Instance
@@ -38,9 +35,65 @@ from lm_eval.models.utils import (
     pad_and_concat,
     stop_sequences_criteria,
 )
+from lm_eval.models_extra.convert_semi_structured import convert_semi_structured_weights
+from lm_eval.models_extra.deepseek.configuration_deepseek import DeepseekConfig
+from lm_eval.models_extra.deepseek.modeling_deepseek import DeepseekModel, DeepseekForCausalLM
+from lm_eval.models_extra.llama_mod.configuration_llama_mod import LlamaMoDConfig
+from lm_eval.models_extra.llama_mod.configuration_llama_mod_exattn import LlamaMoDExAttnConfig
+from lm_eval.models_extra.llama_mod.modeling_llama_mod import LlamaMoDModel, LlamaMoDForCausalLM, LlamaMoDPreTrainedModel
+from lm_eval.models_extra.llama_mod.modeling_llama_mod_exattn import LlamaMoDExAttnModel, LlamaMoDExAttnForCausalLM
+from lm_eval.models_extra.llama_moe.configuration_llama_moe import LlamaMoEConfig
+from lm_eval.models_extra.llama_moe.modeling_llama_moe import LlamaMoEModel, LlamaMoEForCausalLM
+from lm_eval.models_extra.llama_moe_merged.configuration_llama_moe_merged import LlamaMoEMergedConfig
+from lm_eval.models_extra.llama_moe_merged.modeling_llama_moe_merged import LlamaMoEModelMerged, LlamaMoEForCausalLMMerged
+from lm_eval.models_extra.mistral_mod.configuration_mistral_mod_exattn import MistralMoDExAttnConfig
+from lm_eval.models_extra.mistral_mod.modeling_mistral_mod_exattn import MistralMoDExAttnForCausalLM, MistralMoDExAttnModel
+from lm_eval.models_extra.mixtral.modeling_mixtral import MixtralConfig
+from lm_eval.models_extra.mixtral.modeling_mixtral import MixtralModel, MixtralForCausalLM
 
+# transformers_path = "/mnt/petrelfs/dongdaize.d/workspace/compression/src"
+# original_sys_path = sys.path
+# sys.path = [transformers_path] + sys.path
+# importlib.reload(transformers)  # 重新加载模块
+# sys.path = original_sys_path
+# print(f"huggingface transformers: {transformers}")
+
+from transformers.models.auto.modeling_auto import (
+    MODEL_FOR_CAUSAL_LM_MAPPING_NAMES,
+    MODEL_FOR_SEQ_TO_SEQ_CAUSAL_LM_MAPPING_NAMES,
+)
 
 eval_logger = logging.getLogger(__name__)
+
+# 🔍🔍🔍
+from transformers import AutoConfig, AutoModel, AutoModelForCausalLM
+
+# print(f"huggingface transformers: {transformers}")
+# print(f"AutoConfig: {transformers.models.auto.configuration_auto.AutoConfig}")
+
+AutoConfig.register("llama_moe", LlamaMoEConfig)
+AutoConfig.register("llama_moe_merged", LlamaMoEMergedConfig)
+AutoConfig.register("llama_mod", LlamaMoDConfig)
+AutoConfig.register("llama_mod_exattn", LlamaMoDExAttnConfig)
+AutoConfig.register("mistral_mod_exattn", MistralMoDExAttnConfig)
+AutoConfig.register("mixtral", MixtralConfig, exist_ok=True)
+AutoConfig.register("deepseek", DeepseekConfig)
+
+AutoModel.register(LlamaMoEConfig, LlamaMoEModel)
+AutoModel.register(LlamaMoEMergedConfig, LlamaMoEModelMerged)
+AutoModel.register(LlamaMoDConfig, LlamaMoDModel)
+AutoModel.register(LlamaMoDExAttnConfig, LlamaMoDExAttnModel)
+AutoModel.register(MistralMoDExAttnConfig, MistralMoDExAttnModel)
+AutoModel.register(MixtralConfig, MixtralModel, exist_ok=True)
+AutoModel.register(DeepseekConfig, DeepseekModel)
+
+AutoModelForCausalLM.register(LlamaMoEConfig, LlamaMoEForCausalLM)
+AutoModelForCausalLM.register(LlamaMoEMergedConfig, LlamaMoEForCausalLMMerged)
+AutoModelForCausalLM.register(LlamaMoDConfig, LlamaMoDForCausalLM)
+AutoModelForCausalLM.register(LlamaMoDExAttnConfig, LlamaMoDExAttnForCausalLM)
+AutoModelForCausalLM.register(MistralMoDExAttnConfig, MistralMoDExAttnForCausalLM)
+AutoModelForCausalLM.register(MixtralConfig, MixtralForCausalLM, exist_ok=True)
+AutoModelForCausalLM.register(DeepseekConfig, DeepseekForCausalLM)
 
 
 @register_model("hf-auto", "hf", "huggingface")
@@ -92,6 +145,7 @@ class HFLM(TemplateLM):
         autogptq: Optional[Union[bool, str]] = False,
         gptqmodel: Optional[bool] = False,
         gguf_file: Optional[str] = None,
+        autoawq: Optional[Union[bool, str]] = False,  # 🔍
         **kwargs,
     ) -> None:
         super().__init__()
@@ -203,13 +257,15 @@ class HFLM(TemplateLM):
                 autogptq=autogptq,
                 gptqmodel=gptqmodel,
                 gguf_file=gguf_file,
+                autoawq=autoawq,  # 🔍
                 **kwargs,
             )
 
         # access self._model through self.model property outside this method
         if isinstance(self.model, torch.nn.Module):
             self.model.eval()
-            self.model.tie_weights()
+            if not autogptq and not autoawq:  # 🔍
+                self.model.tie_weights()
 
         self.truncation = truncation
         self.logits_cache = logits_cache
@@ -243,7 +299,7 @@ class HFLM(TemplateLM):
         if isinstance(pretrained, str):
             if gpus >= 1 or str(self.device) == "mps":
                 # TODO: can remove this whole snippet except in the mps case, perhaps?
-                if not (parallelize or autogptq or hasattr(self, "accelerator")):
+                if not (parallelize or autogptq or autoawq or hasattr(self, "accelerator")):  # 🔍
                     # place model onto device requested manually,
                     # if not using HF Accelerate or device_map
                     # or any other option that preloads model onto device
@@ -545,6 +601,8 @@ class HFLM(TemplateLM):
         autogptq: Optional[Union[bool, str]] = False,
         gptqmodel: Optional[bool] = False,
         gguf_file: Optional[str] = None,
+        autoawq: Optional[Union[bool, str]] = False,  # 🔍
+        sparse_type: Optional[str] = "none",  # 🔍
         **kwargs,
     ) -> None:
         """
@@ -572,7 +630,7 @@ class HFLM(TemplateLM):
             )
         )
 
-        if not autogptq and not gptqmodel:
+        if not autogptq and not gptqmodel and not autoawq:  # 🔍
             if model_kwargs.get("load_in_4bit", None):
                 assert transformers.__version__ >= "4.30.0", (
                     "load_in_4bit requires transformers >= 4.30.0"
@@ -597,12 +655,45 @@ class HFLM(TemplateLM):
                 raise ValueError(
                     "Cannot use both 'autogptq' and 'gptqmodel' options at the same time."
                 )
+            if autoawq and (autogptq or gptqmodel):  # 🔍
+                raise ValueError(
+                    "Cannot use both 'autoawq' and ('autogptq' or 'gptqmodel') options at the same time."
+                )
+
+            if autoawq:  # 🔍
+                import sys
+                original_path = sys.path
+                try:
+                    sys.path = ["/mnt/petrelfs/dongdaize.d/workspace/compression/src/llmtuner/train/quantization/AutoAWQ"] + sys.path
+                    import awq
+                    importlib.reload(awq)  # 重新加载模块
+                    from awq import AutoAWQForCausalLM
+                    print(f"awq: {awq}")
+
+                except ModuleNotFoundError:
+                    raise Exception(
+                        "Tried to load auto_gptq, but auto-awq is not installed ",
+                        "please install auto-gptq via pip install lm-eval[gptq] or pip install -e .[gptq]",
+                    )
+                self._model = AutoAWQForCausalLM.from_quantized(
+                    pretrained,
+                    trust_remote_code=trust_remote_code,
+                    # model_basename=None if autogptq is True else Path(autogptq).stem,
+                    safetensors=True
+                    if autoawq is True
+                    else autoawq.endswith(".safetensors"),
+                    **model_kwargs,
+                )
+                sys.path = original_path
 
             if autogptq:
+                import sys
+                original_path = sys.path
                 try:
+                    sys.path = ["/mnt/petrelfs/dongdaize.d/workspace/compression/src/llmtuner/train/quantization/gptq-main"] + sys.path
                     from auto_gptq import AutoGPTQForCausalLM
-                except ModuleNotFoundError as exception:
-                    raise type(exception)(
+                except ModuleNotFoundError:
+                    raise Exception(
                         "Tried to load auto_gptq, but auto-gptq is not installed ",
                         "please install auto-gptq via pip install lm-eval[gptq] or pip install -e .[gptq]",
                     )
@@ -616,6 +707,7 @@ class HFLM(TemplateLM):
                     else autogptq.endswith(".safetensors"),
                     **model_kwargs,
                 )
+                sys.path = original_path
 
             if gptqmodel:
                 try:
@@ -629,6 +721,13 @@ class HFLM(TemplateLM):
                 self._model = GPTQModel.from_quantized(
                     pretrained, trust_remote_code=trust_remote_code, **model_kwargs
                 )
+
+        # 🔍
+        print(f"sparse_type: {sparse_type}")
+        if sparse_type in ["2:4"]:  # 🔍 semi-structured: this framework only supports 2:4 now.
+            convert_semi_structured_weights(self._model)
+            # for name, params in self._model.named_parameters():
+            #     params = torch.nn.Parameter(to_sparse_semi_structured(params))
 
         if peft and delta:
             raise ValueError(
@@ -671,6 +770,16 @@ class HFLM(TemplateLM):
                     )
 
             del _model_delta
+
+        # 🔍
+        total_memory_used = 0
+        for device in range(torch.cuda.device_count()):
+            memory_used = torch.cuda.max_memory_allocated(device) / (1024 ** 3)
+            total_memory_used += memory_used
+            memory_pct = memory_used / (torch.cuda.get_device_properties(device).total_memory / (1024 ** 3)) * 100
+            print(f" ** Max Memory (device: {device}): {memory_used:.2f} GB ({memory_pct:.2f}%)")
+
+        print(f"Memory (VRAM): {total_memory_used:.2f} GB ({memory_pct:.2f}%)")
 
         return None
 
@@ -900,7 +1009,9 @@ class HFLM(TemplateLM):
             max_length=max_length,
             stopping_criteria=stopping_criteria,
             pad_token_id=self.tokenizer.pad_token_id,
-            use_cache=True,
+            # 🔍🔍🔍🔍🔍🔍🔍🔍🔍🔍🔍🔍🔍🔍🔍🔍
+            # use_cache=True,
+            use_cache=True if not isinstance(self.model, LlamaMoDPreTrainedModel) else False,
             **generation_kwargs,
         )
 
