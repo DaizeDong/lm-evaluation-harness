@@ -1,15 +1,14 @@
-import warnings
+from collections import defaultdict
 
 import itertools
 import json
 import logging
+import numpy as np
 import random
 import time
-from collections import defaultdict
-from typing import TYPE_CHECKING, List, Optional, Union
-
-import numpy as np
 import torch
+import warnings
+from typing import List, Optional, TYPE_CHECKING, Union
 
 import lm_eval.api.metrics
 import lm_eval.api.registry
@@ -40,9 +39,10 @@ from lm_eval.utils import (
 )
 
 try:
+    import vllm
     from vllm.analysis_utils.analysis_cache import save_analysis_cache
 
-    print("Analysis module loaded successfully.")
+    print(f"Analysis module loaded successfully. ({vllm.analysis_utils})")
     ANALYSIS_MODULE_LOADED = True
 
 except Exception as e:
