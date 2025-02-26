@@ -7,7 +7,6 @@ import numpy as np
 import random
 import time
 import torch
-import warnings
 from typing import List, Optional, TYPE_CHECKING, Union
 
 import lm_eval.api.metrics
@@ -38,14 +37,16 @@ from lm_eval.utils import (
     simple_parse_args_string,
 )
 
-try:
-    import vllm
-    from vllm.analysis_utils.analysis_cache import save_analysis_cache
+try:  # 🔍
+    import analysis_utils
+    from analysis_utils import save_analysis_cache
 
-    print(f"Analysis module loaded successfully. ({vllm.analysis_utils})")
+    print(f"Analysis module loaded successfully. ({analysis_utils})")
     ANALYSIS_MODULE_LOADED = True
 
 except Exception as e:
+    import warnings
+
     warnings.warn(f"Failed to load analysis module: {e}")
     ANALYSIS_MODULE_LOADED = False
 
@@ -548,7 +549,7 @@ def evaluate(
     RANK = lm.rank
     WORLD_SIZE = lm.world_size
 
-    if ANALYSIS_MODULE_LOADED:
+    if ANALYSIS_MODULE_LOADED:  # 🔍
         # This WORLD_SIZE is always 1
         # CACHE WILL BE EMPTY IF DP>1
         print("WORLD_SIZE", WORLD_SIZE)
