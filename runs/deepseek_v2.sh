@@ -11,19 +11,10 @@ model_path="/checkpoints/private/huggingface/DeepSeek-V2"
 output_path="${base_save_dir}/results/deepseek-v2"
 tensor_parallel_size=8
 data_parallel_size=1
-gpu_memory_utilization=0.92
+gpu_memory_utilization=0.94
 max_model_len=1024
 export ANALYSIS_SAVE_DIR="${base_save_dir}/deepseek-v2"
 export ENVIRON_SAVE_DIR=${ANALYSIS_SAVE_DIR}
-
-#model_path="/checkpoints/private/huggingface/DeepSeek-V2-lite"
-#output_path="${base_save_dir}/results/deepseek-v2-lite"
-#tensor_parallel_size=8
-#data_parallel_size=1
-#gpu_memory_utilization=0.8
-#max_model_len=4096
-#export ANALYSIS_SAVE_DIR="${base_save_dir}/deepseek-v2-lite"
-#export ENVIRON_SAVE_DIR=${ANALYSIS_SAVE_DIR}
 
 lm_eval \
   --model vllm \

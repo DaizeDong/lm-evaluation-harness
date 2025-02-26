@@ -7,13 +7,13 @@ export ANALYSIS_TYPE="input_ids,balance_loss,router_scores,router_weights,magnit
 base_save_dir="/dev/shm"
 
 ##########################################################################
-model_path="/checkpoints/oss/DeepSeek-V3"
-output_path="${base_save_dir}/results/deepseek-v3"
+model_path="/checkpoints/oss/DeepSeek-V3-Base"
+output_path="${base_save_dir}/results/deepseek-v3-base"
 tensor_parallel_size=8
 data_parallel_size=1
 gpu_memory_utilization=0.94
 max_model_len=1024
-export ANALYSIS_SAVE_DIR="${base_save_dir}/deepseek-v3"
+export ANALYSIS_SAVE_DIR="${base_save_dir}/deepseek-v3-base"
 export ENVIRON_SAVE_DIR=${ANALYSIS_SAVE_DIR}
 
 lm_eval \
