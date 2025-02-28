@@ -256,7 +256,7 @@ class VLLM(TemplateLM):
             # see https://github.com/vllm-project/vllm/issues/973
             @ray.remote(
                 num_gpus=1 if self.tensor_parallel_size == 1 else None,
-                runtime_env={"env_vars": ALL_ANALYSIS_ENVS if ANALYSIS_MODULE_LOADED else {}}
+                runtime_env={"env_vars": ALL_ANALYSIS_ENVS if ANALYSIS_MODULE_LOADED else {}}  # 🔍
             )
             def run_inference_one_model(
                 model_args: dict,
