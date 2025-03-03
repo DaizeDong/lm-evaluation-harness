@@ -552,7 +552,7 @@ def evaluate(
         # This WORLD_SIZE is always 1
         # CACHE WILL BE EMPTY IF DP>1
         print("WORLD_SIZE", WORLD_SIZE)
-        save_analysis_cache()
+        save_analysis_cache(compress=True)
 
     ### Postprocess outputs ###
     # TODO: del model here, maybe (idea: allow user to specify device of e.g. reward model separately)
