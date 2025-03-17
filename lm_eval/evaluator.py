@@ -41,11 +41,11 @@ from lm_eval.utils import (
 try:  # 🔍
     import analysis_utils
     from analysis_utils import save_analysis_cache
-    print(f"Analysis module loaded successfully. ({analysis_utils})")
+    print(f"[{os.getpid()}] Analysis module loaded successfully. ({analysis_utils})")
     ANALYSIS_MODULE_LOADED = True
 except Exception as e:
     import warnings
-    warnings.warn(f"Failed to load analysis module: {e}")
+    warnings.warn(f"[{os.getpid()}] Failed to load analysis module: {e}")
     ANALYSIS_MODULE_LOADED = False
 print(f"[{os.getpid()}] ANALYSIS_MODULE_LOADED: {ANALYSIS_MODULE_LOADED}")
 
