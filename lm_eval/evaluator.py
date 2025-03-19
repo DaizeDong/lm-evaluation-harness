@@ -574,9 +574,9 @@ def evaluate(
     WORLD_SIZE = lm.world_size
 
     if ANALYSIS_MODULE_LOADED:  # 🔍
-        # This WORLD_SIZE is always 1
-        # CACHE WILL BE EMPTY IF DP>1
-        print("WORLD_SIZE", WORLD_SIZE)
+        # CACHE WILL BE EMPTY IF:
+        # 1. using vllm with DP>1
+        # 2. using sglang
         save_analysis_cache(compress=True)
 
     ### Postprocess outputs ###
