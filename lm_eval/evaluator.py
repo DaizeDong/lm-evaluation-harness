@@ -35,6 +35,7 @@ from lm_eval.utils import (
     handle_non_serializable,
     hash_string,
     positional_deprecated,
+    setup_logging,
     simple_parse_args_string,
 )
 
@@ -78,15 +79,16 @@ def simple_evaluate(
     system_instruction: Optional[str] = None,
     apply_chat_template: Union[bool, str] = False,
     fewshot_as_multiturn: bool = False,
-    gen_kwargs: Optional[str] = None,
+    gen_kwargs: Union[str, dict, None] = None,
     task_manager: Optional[TaskManager] = None,
-    verbostiy=None,
+    verbosity=None,
     predict_only: bool = False,
     random_seed: int = 0,
     numpy_random_seed: int = 1234,
     torch_random_seed: int = 1234,
     fewshot_random_seed: int = 1234,
     confirm_run_unsafe_code: bool = False,
+    metadata: Optional[dict] = None,
 ):
     """Instantiate and evaluate a model on a list of tasks.
 
@@ -110,9 +112,9 @@ def simple_evaluate(
     :param cache_requests: bool, optional
         Speed up evaluation by caching the building of dataset requests. `None` if not caching.
     :param rewrite_requests_cache: bool, optional
-        Rewrites all of the request cache if set to `True`. `None` if not desired.
+        Rewrites all the request cache if set to `True`. `None` if not desired.
     :param delete_requests_cache: bool, optional
-        Deletes all of the request cache if set to `True`. `None` if not desired.
+        Deletes all the request cache if set to `True`. `None` if not desired.
     :param limit: int or float, optional
         Limit the number of examples per task (only use this for testing), If <1, limit is a percentage of the total number of examples.
     :param bootstrap_iters:
@@ -132,10 +134,10 @@ def simple_evaluate(
         Defaults to False (no chat template applied).
     :param fewshot_as_multiturn: bool
         Whether to provide the fewshot examples as a multiturn conversation or a single user turn.
-    :param gen_kwargs: str
-        String arguments for model generation
+    :param gen_kwargs: dict or comma-separated string
+        Arguments for model generation
         Ignored for all tasks with loglikelihood output_type
-    :param verbostiy: str
+    :param verbosity: str
         Verbosity level for logging
     :param predict_only: bool
         If true only model outputs will be generated and returned. Metrics will not be evaluated
@@ -147,13 +149,22 @@ def simple_evaluate(
         Random seed for torch. If set to None, the seed will not be set.
     :param fewshot_random_seed: int
         Random seed for fewshot sampler random generator. If set to None, the seed of generator will be set to None.
+    :param metadata: dict
+        Additional metadata to be added to the task manager. Will get passed to the download function of the task.
 
-    :return
+    return
         Dictionary of results
     """
-    if verbostiy is not None:
-        lm_eval.setup_logging(verbosity=verbostiy)
+    if verbosity is not None:
+        setup_logging(verbosity=verbosity)
     start_date = time.time()
+
+    if isinstance(model_args, str) and (
+        "instruct" in model_args and not apply_chat_template
+    ):
+        eval_logger.warning(
+            "Instruct model detected, but chat template not applied. Recommend setting `apply_chat_template` (optionally `fewshot_as_multiturn`)."
+        )
 
     if delete_requests_cache:
         eval_logger.info("Deleting requests cache...")
@@ -187,12 +198,13 @@ def simple_evaluate(
         )
 
     if gen_kwargs is not None:
-        gen_kwargs = simple_parse_args_string(gen_kwargs)
+        if isinstance(gen_kwargs, str):
+            gen_kwargs = simple_parse_args_string(gen_kwargs)
         eval_logger.warning(
-            "generation_kwargs specified through cli, these settings will update set parameters in yaml tasks. "
+            f"generation_kwargs: {gen_kwargs} specified through cli, these settings will update set parameters in yaml tasks. "
             "Ensure 'do_sample=True' for non-greedy decoding!"
         )
-        if gen_kwargs == "":
+        if not gen_kwargs:
             gen_kwargs = None
 
     if isinstance(model, str):
@@ -246,9 +258,19 @@ def simple_evaluate(
         )
 
     if task_manager is None:
-        task_manager = TaskManager()
+        metadata = (
+            simple_parse_args_string(model_args)
+            if isinstance(model_args, str)
+            else model_args
+            if isinstance(model_args, dict)
+            else {}
+        ) | (metadata or {})
+        task_manager = TaskManager(metadata=metadata)
 
-    task_dict = get_task_dict(tasks, task_manager)
+    task_dict = get_task_dict(
+        tasks,
+        task_manager,
+    )
 
     # helper function to recursively apply config overrides to leaf subtasks, skipping their constituent groups.
     # (setting of num_fewshot ; bypassing metric calculation ; setting fewshot seed)
@@ -267,6 +289,9 @@ def simple_evaluate(
                         task_obj.set_config(
                             key="generation_kwargs", value=gen_kwargs, update=True
                         )
+                    eval_logger.info(
+                        f"{task_obj.config.task}: Using gen_kwargs: {task_obj.config.generation_kwargs}"
+                    )
 
                 if predict_only:
                     eval_logger.info(
@@ -328,11 +353,11 @@ def simple_evaluate(
         system_instruction=system_instruction,
         apply_chat_template=apply_chat_template,
         fewshot_as_multiturn=fewshot_as_multiturn,
-        verbosity=verbostiy,
+        verbosity=verbosity,
         confirm_run_unsafe_code=confirm_run_unsafe_code,
     )
-    if verbostiy is not None:
-        lm_eval.setup_logging(verbosity=verbostiy)
+    if verbosity is not None:
+        setup_logging(verbosity=verbosity)
 
     if lm.rank == 0:
         if isinstance(model, str):
