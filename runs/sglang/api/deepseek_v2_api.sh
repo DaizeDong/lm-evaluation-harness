@@ -2,14 +2,16 @@
 
 model_path="deepseek-ai/DeepSeek-V2"
 
-export ANALYSIS_TYPE="input_ids,balance_loss,router_scores,router_weights,router_bias,magnitude_l1,magnitude_l2"
+export ANALYSIS_TYPE="input_ids,balance_loss,router_scores,router_weights,router_bias,norm_weights,magnitude_l1,magnitude_l2"
 save_dir=${model_path}
-#export ANALYSIS_TYPE="input_ids,balance_loss,router_scores,router_weights,router_bias,magnitude_l1,magnitude_l2,router_inputs"
+#export ANALYSIS_TYPE="input_ids,balance_loss,router_scores,router_weights,router_bias,norm_weights,magnitude_l1,magnitude_l2,router_inputs"
 #save_dir="/dev/shm"
 export OVERWRITE_ANALYSIS_DATA="1"
 export ANALYSIS_SAVE_DIR="${save_dir}/analysis"
 export ANALYSIS_ARGS="save_interval_tokens=1000"
 export ENVIRON_SAVE_DIR="${ANALYSIS_SAVE_DIR}/$(date +%Y%m%d-%H%M%S)"
+
+script_path="$(dirname "$(realpath "$0")")"
 
 ##########################################################################
 echo "Launching SGLang server...."
@@ -40,7 +42,6 @@ python -m sglang.launch_server \
 if [ ${node_rank} == 0 ]; then
   echo "Detecting server...."
 
-  script_path="$(dirname "$(realpath "$0")")"
   python ${script_path}/wait_for_server.py \
     --host ${host} \
     --port ${port}
@@ -65,7 +66,6 @@ else
   echo "Not launching LM-Harness, the rank (${node_rank}) is not 0."
 
   while true; do
-    script_path="$(dirname "$(realpath "$0")")"
     python ${script_path}/connect_server.py \
       --host ${host} \
       --port ${port}
