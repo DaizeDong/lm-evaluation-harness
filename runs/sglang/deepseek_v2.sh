@@ -2,9 +2,9 @@
 
 model_path="deepseek-ai/DeepSeek-V2"
 
-export ANALYSIS_TYPE="input_ids,balance_loss,router_scores,router_weights,router_bias,norm_weights,magnitude_l1,magnitude_l2"
+export ANALYSIS_TYPE="input_ids,balance_loss,router_scores,router_weights,router_bias,layernorm_weights,activation_magnitude_l1,weights_magnitude_l1"
 save_dir=${model_path}
-#export ANALYSIS_TYPE="input_ids,balance_loss,router_scores,router_weights,router_bias,norm_weights,magnitude_l1,magnitude_l2,router_inputs"
+#export ANALYSIS_TYPE="input_ids,balance_loss,router_scores,router_weights,router_bias,layernorm_weights,activation_magnitude_l1,weights_magnitude_l1,router_inputs"
 #save_dir="/dev/shm"
 export OVERWRITE_ANALYSIS_DATA="1"
 export ANALYSIS_SAVE_DIR="${save_dir}/analysis/winogrande"
