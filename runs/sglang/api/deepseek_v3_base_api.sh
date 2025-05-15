@@ -14,12 +14,21 @@ export ENVIRON_SAVE_DIR="${ANALYSIS_SAVE_DIR}/$(date +%Y%m%d-%H%M%S)"
 script_path="$(dirname "$(realpath "$0")")"
 
 ##########################################################################
-echo "Launching SGLang server...."
+#echo "Caching dataset..."
+#
+#export http_proxy=http://httpproxy.glm.ai:8888
+#export https_proxy=http://httpproxy.glm.ai:8888
+#
+#python ${script_path}/cache_dataset.py \
+#  --dataset_path winogrande \
+#  --dataset_name winogrande_xl
+#
+#unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY
 
+##########################################################################
 tp_size=16
 mem_fraction_static=0.9
 
-unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY
 export NCCL_SOCKET_IFNAME="XXXXXXXXXXXX"
 dist_init_addr="XXXXXXXXXXXX:XXXXXXXXXXXX"
 nnodes=2
@@ -27,16 +36,23 @@ node_rank="XXXXXXXXXXXX"
 host=127.0.0.1
 port="XXXXXXXXXXXX"
 
-python -m sglang.launch_server \
-  --model-path ${model_path} \
-  --tp-size ${tp_size} \
-  --mem-fraction-static ${mem_fraction_static} \
-  --dist-init-addr ${dist_init_addr} \
-  --nnodes ${nnodes} \
-  --node-rank ${node_rank} \
-  --host ${host} \
-  --port ${port} \
-  --trust-remote-code &
+if pgrep -f "sglang\.launch_server.*--port[ =]${port}" >/dev/null 2>&1; then
+  echo "SGLang server already running on port ${port}, skipping launch."
+
+else
+  echo "Launching SGLang server...."
+
+  python -m sglang.launch_server \
+    --model-path ${model_path} \
+    --tp-size ${tp_size} \
+    --mem-fraction-static ${mem_fraction_static} \
+    --dist-init-addr ${dist_init_addr} \
+    --nnodes ${nnodes} \
+    --node-rank ${node_rank} \
+    --host ${host} \
+    --port ${port} \
+    --trust-remote-code &
+fi
 
 ##########################################################################
 if [ ${node_rank} == 0 ]; then
