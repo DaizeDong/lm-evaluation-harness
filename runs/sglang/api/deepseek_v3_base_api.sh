@@ -37,22 +37,22 @@ host=127.0.0.1
 port="XXXXXXXXXXXX"
 
 if pgrep -f "sglang\.launch_server.*--port[ =]${port}" >/dev/null 2>&1; then
-  echo "SGLang server already running on port ${port}, skipping launch."
-
-else
-  echo "Launching SGLang server...."
-
-  python -m sglang.launch_server \
-    --model-path ${model_path} \
-    --tp-size ${tp_size} \
-    --mem-fraction-static ${mem_fraction_static} \
-    --dist-init-addr ${dist_init_addr} \
-    --nnodes ${nnodes} \
-    --node-rank ${node_rank} \
-    --host ${host} \
-    --port ${port} \
-    --trust-remote-code &
+  echo "SGLang server already running on port ${port}, killing..."
+  pkill -9 sglang
 fi
+
+echo "Launching SGLang server...."
+
+python -m sglang.launch_server \
+  --model-path ${model_path} \
+  --tp-size ${tp_size} \
+  --mem-fraction-static ${mem_fraction_static} \
+  --dist-init-addr ${dist_init_addr} \
+  --nnodes ${nnodes} \
+  --node-rank ${node_rank} \
+  --host ${host} \
+  --port ${port} \
+  --trust-remote-code &
 
 ##########################################################################
 if [ ${node_rank} == 0 ]; then
