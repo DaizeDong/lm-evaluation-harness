@@ -108,6 +108,7 @@ class VLLM(TemplateLM):
             "swap_space": int(swap_space),
             "quantization": quantization,
             "seed": int(seed),
+            "device": str(device),
         }
         self.model_args.update(kwargs)
         self.batch_size = (
@@ -497,7 +498,10 @@ class VLLM(TemplateLM):
             inputs = []
             ctxlens = []
             for cache_key, context_enc, continuation_enc in chunk:
-                if full_length := len(context_enc + continuation_enc) >= self.max_length:
+                if (
+                    full_length := len(context_enc + continuation_enc)
+                    >= self.max_length
+                ):
                     eval_logger.warning(
                         f"Context length {full_length} exceeds max length ({self.max_length}). Truncating context."
                     )
