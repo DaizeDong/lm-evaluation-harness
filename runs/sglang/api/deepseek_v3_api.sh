@@ -39,6 +39,7 @@ port="XXXXXXXXXXXX"
 if pgrep -f "sglang\.launch_server.*--port[ =]${port}" >/dev/null 2>&1; then
   echo "SGLang server already running on port ${port}, killing..."
   pkill -9 sglang
+  pkill -9 python.*sglang
 fi
 
 echo "Launching SGLang server...."
@@ -68,7 +69,7 @@ if [ ${node_rank} == 0 ]; then
   output_path="${save_dir}/results"
 
   model_args="model=${model_path},base_url=http://${host}:${port}/v1/completions"
-  model_args="${model_args},max_length=${max_length},tokenized_requests=False,trust_remote_code=True"
+  model_args="${model_args},max_length=${max_length},tokenized_requests=False,trust_remote_code=True,num_concurrent=8"
 
   lm_eval \
     --model local-completions \
