@@ -1,14 +1,14 @@
-import os
-from collections import defaultdict
-
 import itertools
 import json
 import logging
-import numpy as np
+import os
 import random
 import time
+from collections import defaultdict
+from typing import TYPE_CHECKING, List, Optional, Union
+
+import numpy as np
 import torch
-from typing import List, Optional, TYPE_CHECKING, Union
 
 import lm_eval.api.metrics
 import lm_eval.api.registry
@@ -30,10 +30,12 @@ from lm_eval.loggers.utils import add_env_info, add_tokenizer_info, get_git_comm
 from lm_eval.tasks import TaskManager, get_task_dict
 from lm_eval.utils import (
     handle_non_serializable,
+    hash_dict_images,
     hash_string,
     positional_deprecated,
     setup_logging,
     simple_parse_args_string,
+    wrap_text,
 )
 
 try:  # 🔍
@@ -151,7 +153,6 @@ def simple_evaluate(
         Random seed for fewshot sampler random generator. If set to None, the seed of generator will be set to None.
     :param metadata: dict
         Additional metadata to be added to the task manager. Will get passed to the download function of the task.
-
     return
         Dictionary of results
     """
@@ -164,11 +165,26 @@ def simple_evaluate(
             "Either 'limit' or 'samples' must be None, but both are not None."
         )
 
-    if isinstance(model_args, str) and (
-        "instruct" in model_args and not apply_chat_template
-    ):
+    _NEEDS_CHAT_TEMPLATE = ("inst", "chat")
+    if (
+        (
+            isinstance(model_args, str)
+            and any(kw in model_args.lower() for kw in _NEEDS_CHAT_TEMPLATE)
+        )
+        or (
+            isinstance(model_args, dict)
+            and any(
+                any(kw in str(v).lower() for kw in _NEEDS_CHAT_TEMPLATE)
+                for v in model_args.values()
+            )
+        )
+    ) and not apply_chat_template:
         eval_logger.warning(
-            "Instruct model detected, but chat template not applied. Recommend setting `apply_chat_template` (optionally `fewshot_as_multiturn`)."
+            wrap_text(
+                f"""pretrained={model_args.get("pretrained") if isinstance(model_args, dict) else model_args} appears to be an
+                instruct or chat variant but chat template is not applied.
+                Recommend setting `apply_chat_template` (optionally `fewshot_as_multiturn`).""",
+            )
         )
 
     if delete_requests_cache:
@@ -232,7 +248,9 @@ def simple_evaluate(
 
         else:
             eval_logger.info(
-                f"Initializing {model} model, with arguments: {simple_parse_args_string(model_args)}"
+                wrap_text(
+                    f"Initializing {model} model, with arguments: {simple_parse_args_string(model_args)}"
+                )
             )
             lm = lm_eval.api.registry.get_model(model).create_from_arg_string(
                 model_args,
@@ -505,10 +523,6 @@ def evaluate(
             raise ValueError(
                 f"Attempted to run tasks: {incompatible_tasks} which require multimodal input, but the selected model type does not currently implement this. Multimodal support is currently restricted to the ['hf-multimodal', 'vllm-vlm'] model type."
             )
-        else:
-            raise ValueError(
-                f"Attempted to run tasks: {incompatible_tasks} which are text-only, but used a model type which only currently supports multimodal tasks."
-            )
     # end validation check
 
     # Cache the limit arg.
@@ -765,6 +779,13 @@ def evaluate(
             },
         }
         if log_samples:
+            # default: hash images
+            samples = (
+                hash_dict_images(samples)
+                if os.environ.get("LMEVAL_HASHMM", "1") != "0"
+                and (hasattr(lm, "MULTIMODAL"))
+                else samples
+            )
             results_dict["samples"] = dict(samples)
 
         return results_dict
