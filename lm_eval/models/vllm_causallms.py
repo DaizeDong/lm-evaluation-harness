@@ -430,7 +430,7 @@ class VLLM(TemplateLM):
             procs, resq = [], Queue()
             # We use Process as it is non-daemonic
             try:
-                for rank, (sp, req) in enumerate(zip(requests, sampling_params)):
+                for rank, (sp, req) in enumerate(zip(sampling_params, requests)):
                     proc = Process(
                         target=_vllm_mp_worker,
                         args=(
