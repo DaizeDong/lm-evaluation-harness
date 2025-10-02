@@ -11,6 +11,7 @@ export ANALYSIS_SAVE_DIR="${save_dir}/analysis/winogrande"
 export ENVIRON_SAVE_DIR="${ANALYSIS_SAVE_DIR}/$(date +%Y%m%d-%H%M%S)"
 
 export ANALYSIS_DEBUG="0"
+export VLLM_ENABLE_V1_MULTIPROCESSING="0" # TODO: support v1 multiprocessing
 
 ##########################################################################
 output_path="${save_dir}/results"
