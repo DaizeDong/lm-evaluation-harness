@@ -10,5 +10,8 @@ export ANALYSIS_SAVE_DIR="/dev/shm" # save the `router_inputs` to the memory as 
 export OVERWRITE_ANALYSIS_DATA="1"
 export ANALYSIS_ARGS="max_tokens=100000"
 
+# in case of debugging
+export ANALYSIS_DEBUG="0"
+
 # in case want to save the environ for debugging
 export ENVIRON_SAVE_DIR="XXXXXXXXXXXXX"

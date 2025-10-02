@@ -11,6 +11,8 @@ export ANALYSIS_SAVE_DIR="${save_dir}/analysis/winogrande"
 export ANALYSIS_ARGS="save_interval_tokens=1000"
 export ENVIRON_SAVE_DIR="${ANALYSIS_SAVE_DIR}/$(date +%Y%m%d-%H%M%S)"
 
+export ANALYSIS_DEBUG="0"
+
 ##########################################################################
 output_path="${save_dir}/results"
 tp_size=8
